@@ -30,3 +30,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Generated BPF files (bpf2go)
+bpf_*.go
+bpf_*.o
+
+# Binary
+psc
+
+# VMLinux header
+bpf/vmlinux.h
