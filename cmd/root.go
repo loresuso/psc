@@ -6,12 +6,23 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/fatih/color"
 	"github.com/loresuso/psc/pkg"
-	"github.com/loresuso/psc/pkg/graph"
+	"github.com/loresuso/psc/pkg/containers"
+	"github.com/loresuso/psc/pkg/tree"
 	"github.com/spf13/cobra"
 )
 
 var treeFlag bool
+
+// Color definitions (bright/high-intensity variants)
+var (
+	pidColor       = color.New(color.FgHiCyan, color.Bold)
+	commColor      = color.New(color.FgHiWhite)
+	containerColor = color.New(color.FgHiGreen, color.Bold)
+	headerColor    = color.New(color.FgHiYellow, color.Bold)
+	separatorColor = color.New(color.FgHiBlack)
+)
 
 // BPFLoader is a function type for loading BPF and returning a task reader
 type BPFLoader func() (io.ReadCloser, func(), error)
@@ -58,6 +69,12 @@ func run(cmd *cobra.Command, args []string) error {
 		pids = append(pids, int32(pid))
 	}
 
+	// Initialize container manager and refresh container info
+	containerMgr := containers.NewDefaultManager()
+	if err := containerMgr.Refresh(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to refresh container info: %v\n", err)
+	}
+
 	reader, cleanup, err := bpfLoader()
 	if err != nil {
 		return err
@@ -71,24 +88,29 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build process tree (needed for both tree output and filtering)
-	pt := graph.New()
+	pt := tree.New()
+	pidToPpid := make(map[int32]int32)
 	for _, td := range tasks {
 		pt.Add(td)
+		pidToPpid[td.Pid] = td.Ppid
 	}
+
+	// Propagate container info to child processes
+	containerMgr.PropagateToChildren(pidToPpid)
 
 	if len(pids) > 0 {
 		// Specific PIDs requested
 		if treeFlag {
-			printLineages(pt, pids)
+			printLineages(pt, pids, containerMgr)
 		} else {
-			printFilteredTable(pt, pids)
+			printFilteredTable(pt, pids, containerMgr)
 		}
 	} else {
 		// All processes
 		if treeFlag {
-			pt.PrintTree(os.Stdout)
+			pt.PrintTreeWithContainersColored(os.Stdout, containerMgr)
 		} else {
-			printTable(tasks)
+			printTable(tasks, containerMgr)
 		}
 	}
 
@@ -125,18 +147,43 @@ func collectTasks(reader io.Reader) ([]*pkg.TaskDescriptor, error) {
 	return tasks, nil
 }
 
-func printTable(tasks []*pkg.TaskDescriptor) {
-	fmt.Printf("%-8s %-8s %-8s %s\n", "PID", "TID", "PPID", "COMM")
-	fmt.Println("-------- -------- -------- ----------------")
+func getContainerLabel(pid int32, mgr *containers.Manager) string {
+	if mgr == nil {
+		return ""
+	}
+	c := mgr.GetContainerByPID(pid)
+	if c == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s:%s", c.Name, c.ID, c.Runtime)
+}
+
+func printTableHeader() {
+	headerColor.Printf("%-8s %-8s %-8s %-16s %s\n", "PID", "TID", "PPID", "COMM", "CONTAINER")
+	separatorColor.Println("-------- -------- -------- ---------------- --------------------")
+}
+
+func printTableRow(td *pkg.TaskDescriptor, container string) {
+	pidColor.Printf("%-8d ", td.Pid)
+	fmt.Printf("%-8d %-8d ", td.Tid, td.Ppid)
+	commColor.Printf("%-16s ", td.Comm)
+	if container != "" {
+		containerColor.Printf("%s", container)
+	}
+	fmt.Println()
+}
+
+func printTable(tasks []*pkg.TaskDescriptor, mgr *containers.Manager) {
+	printTableHeader()
 
 	for _, td := range tasks {
-		fmt.Printf("%-8d %-8d %-8d %s\n", td.Pid, td.Tid, td.Ppid, td.Comm)
+		container := getContainerLabel(td.Pid, mgr)
+		printTableRow(td, container)
 	}
 }
 
-func printFilteredTable(pt *graph.ProcessTree, pids []int32) {
-	fmt.Printf("%-8s %-8s %-8s %s\n", "PID", "TID", "PPID", "COMM")
-	fmt.Println("-------- -------- -------- ----------------")
+func printFilteredTable(pt *tree.ProcessTree, pids []int32, mgr *containers.Manager) {
+	printTableHeader()
 
 	for _, pid := range pids {
 		td := pt.Get(pid)
@@ -144,12 +191,13 @@ func printFilteredTable(pt *graph.ProcessTree, pids []int32) {
 			fmt.Fprintf(os.Stderr, "Warning: PID %d not found\n", pid)
 			continue
 		}
-		fmt.Printf("%-8d %-8d %-8d %s\n", td.Pid, td.Tid, td.Ppid, td.Comm)
+		container := getContainerLabel(td.Pid, mgr)
+		printTableRow(td, container)
 	}
 }
 
-func printLineages(pt *graph.ProcessTree, pids []int32) {
-	if err := pt.PrintLineages(os.Stdout, pids); err != nil {
+func printLineages(pt *tree.ProcessTree, pids []int32, mgr *containers.Manager) {
+	if err := pt.PrintLineagesWithContainersColored(os.Stdout, pids, mgr); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	}
 }

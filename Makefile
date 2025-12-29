@@ -17,5 +17,8 @@ vmlinux:
 test:
 	go test ./...
 
+install: build
+	install -m 755 psc /usr/local/bin/psc
+
 clean:
 	@rm -f bpf_*.go bpf_*.o psc
