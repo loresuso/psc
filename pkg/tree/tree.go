@@ -406,3 +406,102 @@ func (pt *ProcessTree) printNodeColored(w io.Writer, pid int32, prefix string, i
 		pt.printNodeColored(w, childPid, newPrefix, false, isLastChild, mgr)
 	}
 }
+
+// PrintSubtreeWithContainersColored prints only the subtree containing the specified PIDs.
+// It finds the common ancestor(s) and prints from there, but only including the specified PIDs and their descendants.
+func (pt *ProcessTree) PrintSubtreeWithContainersColored(w io.Writer, pidSet map[int32]bool, mgr *containers.Manager) {
+	if len(pidSet) == 0 {
+		return
+	}
+
+	// Find root processes among the specified PIDs
+	// (processes whose parent is not in the set)
+	var roots []int32
+	for pid := range pidSet {
+		td := pt.nodes[pid]
+		if td == nil {
+			continue
+		}
+		// Check if parent is in the set
+		if !pidSet[td.Ppid] {
+			roots = append(roots, pid)
+		}
+	}
+
+	sort.Slice(roots, func(i, j int) bool {
+		return roots[i] < roots[j]
+	})
+
+	// Print each root and its descendants (only those in pidSet)
+	for _, rootPid := range roots {
+		pt.printNodeFilteredColored(w, rootPid, "", true, true, mgr, pidSet)
+	}
+}
+
+// printNodeFilteredColored prints a node and only children that are in the filter set.
+func (pt *ProcessTree) printNodeFilteredColored(w io.Writer, pid int32, prefix string, isRoot bool, isLast bool, mgr *containers.Manager, filter map[int32]bool) {
+	td := pt.nodes[pid]
+	if td == nil {
+		return
+	}
+
+	containerLabel := ""
+	if mgr != nil {
+		if c := mgr.GetContainerByPID(pid); c != nil {
+			containerLabel = fmt.Sprintf("%s:%s:%s", c.Name, c.ID, c.Runtime)
+		}
+	}
+
+	if isRoot {
+		fmt.Fprint(w, "[")
+		pidColor.Fprint(w, td.Pid)
+		fmt.Fprint(w, "] ")
+		commColor.Fprint(w, td.Comm)
+		if containerLabel != "" {
+			fmt.Fprint(w, " ")
+			containerColor.Fprintf(w, "(%s)", containerLabel)
+		}
+		fmt.Fprintln(w)
+	} else {
+		connector := "├── "
+		if isLast {
+			connector = "└── "
+		}
+		treeColor.Fprint(w, prefix, connector)
+		fmt.Fprint(w, "[")
+		pidColor.Fprint(w, td.Pid)
+		fmt.Fprint(w, "] ")
+		commColor.Fprint(w, td.Comm)
+		if containerLabel != "" {
+			fmt.Fprint(w, " ")
+			containerColor.Fprintf(w, "(%s)", containerLabel)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// Get children that are in the filter set
+	var filteredChildren []int32
+	for _, childPid := range pt.children[pid] {
+		if filter[childPid] {
+			filteredChildren = append(filteredChildren, childPid)
+		}
+	}
+
+	sort.Slice(filteredChildren, func(i, j int) bool {
+		return filteredChildren[i] < filteredChildren[j]
+	})
+
+	var newPrefix string
+	if isRoot {
+		newPrefix = ""
+	} else if isLast {
+		newPrefix = prefix + "    "
+	} else {
+		newPrefix = prefix + "│   "
+	}
+
+	for i, childPid := range filteredChildren {
+		isLastChild := i == len(filteredChildren)-1
+		pt.printNodeFilteredColored(w, childPid, newPrefix, false, isLastChild, mgr, filter)
+	}
+}

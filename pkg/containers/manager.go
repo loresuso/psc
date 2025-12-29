@@ -116,6 +116,55 @@ func (m *Manager) GetContainer(id string) *ContainerInfo {
 	return m.containers[id]
 }
 
+// GetContainerByIDOrName looks up a container by ID (full or prefix) or by name.
+// Returns nil if no match is found.
+func (m *Manager) GetContainerByIDOrName(query string) *ContainerInfo {
+	// First try exact ID match
+	if c, exists := m.containers[query]; exists {
+		return c
+	}
+
+	// Try ID prefix match or name match
+	var match *ContainerInfo
+	matchCount := 0
+
+	for _, c := range m.containers {
+		// Check if query matches start of ID
+		if len(query) <= len(c.ID) && c.ID[:len(query)] == query {
+			match = c
+			matchCount++
+		}
+		// Check if query matches name exactly
+		if c.Name == query {
+			return c // Exact name match takes priority
+		}
+	}
+
+	// Return match only if unique
+	if matchCount == 1 {
+		return match
+	}
+
+	return nil
+}
+
+// GetPIDsForContainer returns all PIDs associated with a container (by ID or name).
+func (m *Manager) GetPIDsForContainer(query string) []int32 {
+	container := m.GetContainerByIDOrName(query)
+	if container == nil {
+		return nil
+	}
+
+	// Collect all PIDs mapped to this container
+	var pids []int32
+	for pid, c := range m.pidToContainer {
+		if c.ID == container.ID {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
 // ListContainers returns all known containers
 func (m *Manager) ListContainers() []*ContainerInfo {
 	result := make([]*ContainerInfo, 0, len(m.containers))

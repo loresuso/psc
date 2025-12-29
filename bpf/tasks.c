@@ -9,29 +9,71 @@ char LICENSE[] SEC("license") = "GPL";
 #define SIZE_OF_ULONG (sizeof(unsigned long))
 
 // Task descriptor field sizes
-#define TASK_COMM_LEN    16
-#define TASK_ENV_LEN     4096
-#define TASK_CWD_LEN     256
-#define TASK_ROOT_LEN    256
-#define TASK_EXE_LEN     256
-#define TASK_PATH_LEN    4096
-#define TASK_CMDLINE_LEN 4096
-#define TASK_CGROUP_LEN  256
+#define TASK_COMM_LEN 16
+#define TASK_CMDLINE_LEN 256
+
+// RSS stat indices (from kernel mm_types.h)
+#define MM_FILEPAGES  0
+#define MM_ANONPAGES  1
+#define MM_SWAPENTS   2
+#define MM_SHMEMPAGES 3
 
 static unsigned long entries[MAX_STACK_TRACE_DEPTH];
 
 struct task_descriptor {
+    int euid;
 	int pid;
-    int tid;
-    int ppid;
-    char comm[TASK_COMM_LEN];
+	int tid;
+	int ppid;
+	unsigned int state;       // Process state (__state field)
+	unsigned long start_time; // Start time in nanoseconds (start_time)
+	unsigned long utime;      // User CPU time in nanoseconds
+	unsigned long stime;      // System CPU time in nanoseconds
+	unsigned long vsz;        // Virtual memory size in bytes
+	unsigned long rss;        // Resident set size in bytes
+	char comm[TASK_COMM_LEN];
+	// Note: cmdline is read from /proc in userspace as BPF iterators
+	// have restrictions on reading userspace memory
 };
 
 static __always_inline void fill_task_descriptor(struct task_descriptor *td, struct task_struct *task)
 {
+	struct mm_struct *mm;
+	s64 rss_file, rss_anon, rss_shmem;
+
+    td->euid = task->cred->euid.val;
 	td->pid = task->tgid;
 	td->tid = task->pid;
 	td->ppid = task->real_parent->tgid;
+	td->state = task->__state;
+	td->start_time = task->start_time;
+	td->utime = task->utime;
+	td->stime = task->stime;
+
+	// Get memory info from mm_struct
+	mm = task->mm;
+	if (mm) {
+		// VSZ: total_vm is in pages, convert to bytes (PAGE_SIZE = 4096)
+		td->vsz = mm->total_vm * 4096;
+
+		// RSS: sum of file, anon, and shmem pages (approximation using base count)
+		// Note: This is the base count only, actual RSS may be slightly different
+		// due to per-CPU deltas in percpu_counter
+		rss_file = mm->rss_stat[MM_FILEPAGES].count;
+		rss_anon = mm->rss_stat[MM_ANONPAGES].count;
+		rss_shmem = mm->rss_stat[MM_SHMEMPAGES].count;
+		
+		// Ensure non-negative (percpu counters can temporarily go negative)
+		if (rss_file < 0) rss_file = 0;
+		if (rss_anon < 0) rss_anon = 0;
+		if (rss_shmem < 0) rss_shmem = 0;
+		
+		td->rss = (rss_file + rss_anon + rss_shmem) * 4096;
+	} else {
+		td->vsz = 0;
+		td->rss = 0;
+	}
+
 	bpf_probe_read_str(&td->comm, sizeof(td->comm), task->comm);
 }
 
