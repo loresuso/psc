@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/loresuso/psc/pkg"
 	"github.com/loresuso/psc/pkg/graph"
@@ -23,10 +24,14 @@ func SetBPFLoader(loader BPFLoader) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "psc",
+	Use:   "psc [pid...]",
 	Short: "Process scanner using eBPF",
-	Long:  "A tool to list and visualize processes using eBPF iterators.",
-	RunE:  run,
+	Long: `A tool to list and visualize processes using eBPF iterators.
+
+If no PIDs are specified, all processes are shown.
+If PIDs are specified, only those processes are shown.
+With --tree and PIDs, the lineage of each PID is displayed.`,
+	RunE: run,
 }
 
 func init() {
@@ -43,6 +48,16 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("BPF loader not initialized")
 	}
 
+	// Parse PID arguments
+	var pids []int32
+	for _, arg := range args {
+		pid, err := strconv.ParseInt(arg, 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid PID %q: %w", arg, err)
+		}
+		pids = append(pids, int32(pid))
+	}
+
 	reader, cleanup, err := bpfLoader()
 	if err != nil {
 		return err
@@ -55,10 +70,26 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if treeFlag {
-		printTree(tasks)
+	// Build process tree (needed for both tree output and filtering)
+	pt := graph.New()
+	for _, td := range tasks {
+		pt.Add(td)
+	}
+
+	if len(pids) > 0 {
+		// Specific PIDs requested
+		if treeFlag {
+			printLineages(pt, pids)
+		} else {
+			printFilteredTable(pt, pids)
+		}
 	} else {
-		printTable(tasks)
+		// All processes
+		if treeFlag {
+			pt.PrintTree(os.Stdout)
+		} else {
+			printTable(tasks)
+		}
 	}
 
 	return nil
@@ -103,11 +134,27 @@ func printTable(tasks []*pkg.TaskDescriptor) {
 	}
 }
 
-func printTree(tasks []*pkg.TaskDescriptor) {
-	pt := graph.New()
-	for _, td := range tasks {
-		pt.Add(td)
+func printFilteredTable(pt *graph.ProcessTree, pids []int32) {
+	fmt.Printf("%-8s %-8s %-8s %s\n", "PID", "TID", "PPID", "COMM")
+	fmt.Println("-------- -------- -------- ----------------")
+
+	for _, pid := range pids {
+		td := pt.Get(pid)
+		if td == nil {
+			fmt.Fprintf(os.Stderr, "Warning: PID %d not found\n", pid)
+			continue
+		}
+		fmt.Printf("%-8d %-8d %-8d %s\n", td.Pid, td.Tid, td.Ppid, td.Comm)
 	}
-	pt.PrintTree(os.Stdout)
 }
 
+func printLineages(pt *graph.ProcessTree, pids []int32) {
+	for i, pid := range pids {
+		if i > 0 {
+			fmt.Println()
+		}
+		if err := pt.PrintLineage(os.Stdout, pid); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+	}
+}
