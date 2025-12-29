@@ -102,6 +102,47 @@ func (pt *ProcessTree) GetLineage(pid int32) ([]*pkg.TaskDescriptor, error) {
 	return lineage, nil
 }
 
+// PrintLineages prints the merged lineages of multiple PIDs, deduplicating common ancestors.
+func (pt *ProcessTree) PrintLineages(w io.Writer, pids []int32) error {
+	if len(pids) == 0 {
+		return nil
+	}
+
+	// Collect all nodes that are part of any lineage
+	lineageNodes := make(map[int32]bool)
+	for _, pid := range pids {
+		lineage, err := pt.GetLineage(pid)
+		if err != nil {
+			fmt.Fprintf(w, "Warning: %v\n", err)
+			continue
+		}
+		for _, td := range lineage {
+			lineageNodes[td.Pid] = true
+		}
+	}
+
+	if len(lineageNodes) == 0 {
+		return fmt.Errorf("no valid PIDs found")
+	}
+
+	// Build a subtree with only lineage nodes
+	subtree := New()
+	for pid := range lineageNodes {
+		td := pt.nodes[pid]
+		if td != nil {
+			subtree.nodes[pid] = td
+			// Only add parent-child relationship if parent is also in lineage
+			if lineageNodes[td.Ppid] {
+				subtree.children[td.Ppid] = append(subtree.children[td.Ppid], pid)
+			}
+		}
+	}
+
+	// Print the subtree
+	subtree.PrintTree(w)
+	return nil
+}
+
 // findRoots returns PIDs of processes that are tree roots.
 func (pt *ProcessTree) findRoots() []int32 {
 	var roots []int32

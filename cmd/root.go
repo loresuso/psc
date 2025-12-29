@@ -149,12 +149,7 @@ func printFilteredTable(pt *graph.ProcessTree, pids []int32) {
 }
 
 func printLineages(pt *graph.ProcessTree, pids []int32) {
-	for i, pid := range pids {
-		if i > 0 {
-			fmt.Println()
-		}
-		if err := pt.PrintLineage(os.Stdout, pid); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-		}
+	if err := pt.PrintLineages(os.Stdout, pids); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	}
 }
