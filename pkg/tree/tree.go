@@ -4,31 +4,31 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/loresuso/psc/pkg"
+	"github.com/loresuso/psc/pkg/unmarshal"
 )
 
 // ProcessTree represents a tree of processes indexed by PID.
 type ProcessTree struct {
-	nodes    map[int32]*pkg.TaskDescriptor
+	nodes    map[int32]*unmarshal.TaskDescriptor
 	children map[int32][]int32 // parent PID -> list of child PIDs
 }
 
 // New creates a new empty ProcessTree.
 func New() *ProcessTree {
 	return &ProcessTree{
-		nodes:    make(map[int32]*pkg.TaskDescriptor),
+		nodes:    make(map[int32]*unmarshal.TaskDescriptor),
 		children: make(map[int32][]int32),
 	}
 }
 
 // Add inserts a process into the tree.
-func (pt *ProcessTree) Add(td *pkg.TaskDescriptor) {
+func (pt *ProcessTree) Add(td *unmarshal.TaskDescriptor) {
 	pt.nodes[td.Pid] = td
 	pt.children[td.Ppid] = append(pt.children[td.Ppid], td.Pid)
 }
 
 // Get returns a process by PID, or nil if not found.
-func (pt *ProcessTree) Get(pid int32) *pkg.TaskDescriptor {
+func (pt *ProcessTree) Get(pid int32) *unmarshal.TaskDescriptor {
 	return pt.nodes[pid]
 }
 
@@ -53,12 +53,12 @@ func (pt *ProcessTree) Size() int {
 }
 
 // GetLineage returns the ancestry of a process from root to the given PID.
-func (pt *ProcessTree) GetLineage(pid int32) ([]*pkg.TaskDescriptor, error) {
+func (pt *ProcessTree) GetLineage(pid int32) ([]*unmarshal.TaskDescriptor, error) {
 	if _, ok := pt.nodes[pid]; !ok {
 		return nil, fmt.Errorf("process %d not found", pid)
 	}
 
-	var lineage []*pkg.TaskDescriptor
+	var lineage []*unmarshal.TaskDescriptor
 	current := pid
 
 	for {
@@ -66,7 +66,7 @@ func (pt *ProcessTree) GetLineage(pid int32) ([]*pkg.TaskDescriptor, error) {
 		if td == nil {
 			break
 		}
-		lineage = append([]*pkg.TaskDescriptor{td}, lineage...)
+		lineage = append([]*unmarshal.TaskDescriptor{td}, lineage...)
 		if td.Ppid == 0 || td.Ppid == td.Pid {
 			break
 		}
@@ -123,8 +123,8 @@ func (pt *ProcessTree) BuildLineageSubtree(pids []int32) (*ProcessTree, error) {
 }
 
 // All returns all TaskDescriptors in the tree.
-func (pt *ProcessTree) All() []*pkg.TaskDescriptor {
-	result := make([]*pkg.TaskDescriptor, 0, len(pt.nodes))
+func (pt *ProcessTree) All() []*unmarshal.TaskDescriptor {
+	result := make([]*unmarshal.TaskDescriptor, 0, len(pt.nodes))
 	for _, td := range pt.nodes {
 		result = append(result, td)
 	}

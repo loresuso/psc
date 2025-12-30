@@ -6,7 +6,8 @@ LIBBPF_INCLUDE := /usr/src/linux-headers-$(KERNEL_VERSION)/tools/bpf/resolve_btf
 all: build
 
 generate:
-	go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall -I$(LIBBPF_INCLUDE)" bpf bpf/tasks.c
+	go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall -I$(LIBBPF_INCLUDE)" tasks bpf/tasks.c
+	go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall -I$(LIBBPF_INCLUDE)" files bpf/files.c
 
 build: generate
 	go build -o psc
@@ -21,4 +22,4 @@ install: build
 	install -m 755 psc /usr/local/bin/psc
 
 clean:
-	@rm -f bpf_*.go bpf_*.o psc
+	@rm -f tasks_*.go tasks_*.o files_*.go files_*.o psc

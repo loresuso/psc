@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/loresuso/psc/pkg"
 	"github.com/loresuso/psc/pkg/containers"
+	"github.com/loresuso/psc/pkg/unmarshal"
 )
 
 // Printer handles table printing with various options.
@@ -60,7 +60,7 @@ func WithColors(colored bool) PrintOption {
 }
 
 // PrintAll prints all tasks in a table.
-func (p *Printer) PrintAll(tasks []*pkg.TaskDescriptor) {
+func (p *Printer) PrintAll(tasks []*unmarshal.TaskDescriptor) {
 	p.printHeader()
 	for _, td := range tasks {
 		p.printRow(td)
@@ -68,7 +68,7 @@ func (p *Printer) PrintAll(tasks []*pkg.TaskDescriptor) {
 }
 
 // PrintPIDs prints only the specified PIDs.
-func (p *Printer) PrintPIDs(tasks []*pkg.TaskDescriptor, pids []int32) {
+func (p *Printer) PrintPIDs(tasks []*unmarshal.TaskDescriptor, pids []int32) {
 	pidSet := make(map[int32]bool)
 	for _, pid := range pids {
 		pidSet[pid] = true
@@ -83,7 +83,7 @@ func (p *Printer) PrintPIDs(tasks []*pkg.TaskDescriptor, pids []int32) {
 }
 
 // PrintLineage prints all processes in the lineage of the specified PIDs.
-func (p *Printer) PrintLineage(tasks []*pkg.TaskDescriptor, lineagePids map[int32]bool) {
+func (p *Printer) PrintLineage(tasks []*unmarshal.TaskDescriptor, lineagePids map[int32]bool) {
 	p.printHeader()
 	for _, td := range tasks {
 		if lineagePids[td.Pid] {
@@ -104,7 +104,7 @@ func (p *Printer) printHeader() {
 	}
 }
 
-func (p *Printer) printRow(td *pkg.TaskDescriptor) {
+func (p *Printer) printRow(td *unmarshal.TaskDescriptor) {
 	user := td.User
 	if len(user) > 10 {
 		user = user[:9] + "+"
@@ -118,7 +118,7 @@ func (p *Printer) printRow(td *pkg.TaskDescriptor) {
 		fmt.Fprintf(p.w, "%-8d %-8d ", td.Tid, td.Ppid)
 		stateColor.Fprintf(p.w, "%-2s ", td.State.StateChar())
 		cpuColor.Fprintf(p.w, "%5.1f ", td.CpuPercent(p.bootTime))
-		memColor.Fprintf(p.w, "%8s %8s ", pkg.FormatMemory(td.Vsz), pkg.FormatMemory(td.Rss))
+		memColor.Fprintf(p.w, "%8s %8s ", unmarshal.FormatMemory(td.Vsz), unmarshal.FormatMemory(td.Rss))
 		fmt.Fprintf(p.w, "%-11s ", td.FormatStartTime(p.bootTime))
 		commColor.Fprintf(p.w, "%-16s ", td.Comm)
 		fmt.Fprintf(p.w, "%s", td.Cmdline)
@@ -128,7 +128,7 @@ func (p *Printer) printRow(td *pkg.TaskDescriptor) {
 	} else {
 		fmt.Fprintf(p.w, "%-10s %-8d %-8d %-8d %-2s %5.1f %8s %8s %-11s %-16s %s",
 			user, td.Pid, td.Tid, td.Ppid, td.State.StateChar(),
-			td.CpuPercent(p.bootTime), pkg.FormatMemory(td.Vsz), pkg.FormatMemory(td.Rss),
+			td.CpuPercent(p.bootTime), unmarshal.FormatMemory(td.Vsz), unmarshal.FormatMemory(td.Rss),
 			td.FormatStartTime(p.bootTime), td.Comm, td.Cmdline)
 		if container != "" {
 			fmt.Fprintf(p.w, " (%s)", container)

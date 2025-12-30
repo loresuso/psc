@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/loresuso/psc/pkg"
+	"github.com/loresuso/psc/pkg/unmarshal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,10 +17,10 @@ func TestProcessTree(t *testing.T) {
 	// │   └── vim (200)
 	// └── sshd (101)
 
-	pt.Add(&pkg.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 101, Ppid: 1, Comm: "sshd"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 101, Ppid: 1, Comm: "sshd"})
 
 	require.Equal(t, 4, pt.Size())
 
@@ -44,9 +44,9 @@ func TestProcessTree(t *testing.T) {
 
 func TestPrintTree(t *testing.T) {
 	pt := New()
-	pt.Add(&pkg.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
 
 	var buf bytes.Buffer
 	NewPrinter(pt, WithColors(false)).PrintTree(&buf)
@@ -59,9 +59,9 @@ func TestPrintTree(t *testing.T) {
 
 func TestPrintLineages(t *testing.T) {
 	pt := New()
-	pt.Add(&pkg.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
-	pt.Add(&pkg.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
+	pt.Add(&unmarshal.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
 
 	var buf bytes.Buffer
 	err := NewPrinter(pt, WithColors(false)).PrintLineages(&buf, []int32{200})

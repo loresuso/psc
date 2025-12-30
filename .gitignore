@@ -32,8 +32,8 @@ go.work.sum
 # .vscode/
 
 # Generated BPF files (bpf2go)
-bpf_*.go
-bpf_*.o
+*_bpfel.go
+*_bpfel.o
 
 # Binary
 psc

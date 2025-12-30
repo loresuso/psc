@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loresuso/psc/pkg"
 	"github.com/loresuso/psc/pkg/containers"
 	"github.com/loresuso/psc/pkg/table"
 	"github.com/loresuso/psc/pkg/tree"
+	"github.com/loresuso/psc/pkg/unmarshal"
 	"github.com/spf13/cobra"
 )
 
@@ -29,14 +29,30 @@ func init() {
 	bootTime = getBootTime()
 }
 
-// BPFLoader is a function type for loading BPF and returning a task reader
+// BPFLoader is a function type for loading BPF and returning a reader
 type BPFLoader func() (io.ReadCloser, func(), error)
 
-var bpfLoader BPFLoader
+// BPFLoaders holds the different BPF loader functions
+type BPFLoaders struct {
+	Task BPFLoader
+	File BPFLoader
+}
 
-// SetBPFLoader sets the BPF loader function (called from main)
-func SetBPFLoader(loader BPFLoader) {
-	bpfLoader = loader
+var loaders BPFLoaders
+
+// SetBPFLoaders sets the BPF loader functions (called from main)
+func SetBPFLoaders(l BPFLoaders) {
+	loaders = l
+}
+
+// GetTaskLoader returns the task BPF loader
+func GetTaskLoader() BPFLoader {
+	return loaders.Task
+}
+
+// GetFileLoader returns the file BPF loader
+func GetFileLoader() BPFLoader {
+	return loaders.File
 }
 
 var rootCmd = &cobra.Command{
@@ -94,8 +110,32 @@ func Execute() error {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	if bpfLoader == nil {
-		return fmt.Errorf("BPF loader not initialized")
+	if loaders.Task == nil {
+		return fmt.Errorf("BPF task loader not initialized")
+	}
+	if loaders.File == nil {
+		return fmt.Errorf("BPF file loader not initialized")
+	}
+
+	reader, cleanup, err := loaders.File()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	defer reader.Close()
+	buf := make([]byte, unmarshal.FileDescriptor{}.Size())
+	for {
+		_, err := io.ReadFull(reader, buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read from iterator: %w", err)
+		}
+		var fd unmarshal.FileDescriptor
+		if err := fd.Unmarshal(buf); err != nil {
+			return fmt.Errorf("failed to unmarshal file descriptor: %w", err)
+		}
 	}
 
 	// Initialize container manager and refresh container info first
@@ -125,14 +165,14 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	reader, cleanup, err := bpfLoader()
+	taskReader, taskCleanup, err := loaders.Task()
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer taskCleanup()
 	defer reader.Close()
 
-	tasks, err := collectTasks(reader)
+	tasks, err := collectTasks(taskReader)
 	if err != nil {
 		return err
 	}
@@ -215,9 +255,9 @@ func collectLineagePids(pt *tree.ProcessTree, pids []int32) map[int32]bool {
 	return lineagePids
 }
 
-func collectTasks(reader io.Reader) ([]*pkg.TaskDescriptor, error) {
-	var tasks []*pkg.TaskDescriptor
-	buf := make([]byte, pkg.TaskDescriptor{}.Size())
+func collectTasks(reader io.Reader) ([]*unmarshal.TaskDescriptor, error) {
+	var tasks []*unmarshal.TaskDescriptor
+	buf := make([]byte, unmarshal.TaskDescriptor{}.Size())
 
 	for {
 		_, err := io.ReadFull(reader, buf)
@@ -228,7 +268,7 @@ func collectTasks(reader io.Reader) ([]*pkg.TaskDescriptor, error) {
 			return nil, fmt.Errorf("failed to read from iterator: %w", err)
 		}
 
-		var td pkg.TaskDescriptor
+		var td unmarshal.TaskDescriptor
 		if err := td.Unmarshal(buf); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal task descriptor: %w", err)
 		}
