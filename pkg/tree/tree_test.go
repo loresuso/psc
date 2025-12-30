@@ -49,7 +49,7 @@ func TestPrintTree(t *testing.T) {
 	pt.Add(&pkg.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
 
 	var buf bytes.Buffer
-	pt.PrintTree(&buf)
+	NewPrinter(pt, WithColors(false)).PrintTree(&buf)
 
 	output := buf.String()
 	require.Contains(t, output, "[1] init")
@@ -57,14 +57,14 @@ func TestPrintTree(t *testing.T) {
 	require.Contains(t, output, "[200] vim")
 }
 
-func TestPrintLineage(t *testing.T) {
+func TestPrintLineages(t *testing.T) {
 	pt := New()
 	pt.Add(&pkg.TaskDescriptor{Pid: 1, Ppid: 0, Comm: "init"})
 	pt.Add(&pkg.TaskDescriptor{Pid: 100, Ppid: 1, Comm: "bash"})
 	pt.Add(&pkg.TaskDescriptor{Pid: 200, Ppid: 100, Comm: "vim"})
 
 	var buf bytes.Buffer
-	err := pt.PrintLineage(&buf, 200)
+	err := NewPrinter(pt, WithColors(false)).PrintLineages(&buf, []int32{200})
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -72,4 +72,3 @@ func TestPrintLineage(t *testing.T) {
 	require.Contains(t, output, "[100] bash")
 	require.Contains(t, output, "[200] vim")
 }
-

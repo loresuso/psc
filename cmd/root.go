@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/loresuso/psc/pkg"
 	"github.com/loresuso/psc/pkg/containers"
+	"github.com/loresuso/psc/pkg/table"
 	"github.com/loresuso/psc/pkg/tree"
 	"github.com/spf13/cobra"
 )
@@ -20,18 +19,7 @@ import (
 var (
 	treeFlag    bool
 	lineageFlag bool
-)
-
-// Color definitions (bright/high-intensity variants)
-var (
-	pidColor       = color.New(color.FgHiCyan, color.Bold)
-	commColor      = color.New(color.FgHiWhite)
-	containerColor = color.New(color.FgHiGreen, color.Bold)
-	headerColor    = color.New(color.FgHiYellow, color.Bold)
-	separatorColor = color.New(color.FgHiBlack)
-	stateColor     = color.New(color.FgHiMagenta)
-	cpuColor       = color.New(color.FgHiYellow)
-	memColor       = color.New(color.FgHiBlue)
+	noColorFlag bool
 )
 
 // bootTime is cached at startup for CPU% and start time calculations
@@ -96,6 +84,8 @@ Examples:
 func init() {
 	rootCmd.Flags().BoolVarP(&treeFlag, "tree", "t", false, "Print processes as a tree")
 	rootCmd.Flags().BoolVarP(&lineageFlag, "lineage", "l", false, "Show full lineage (ancestors) for specified PIDs")
+	rootCmd.Flags().BoolVar(&noColorFlag, "no-color", false, "Disable colored output")
+	rootCmd.MarkFlagsMutuallyExclusive("tree", "lineage")
 }
 
 // Execute runs the root command
@@ -166,23 +156,33 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Validate mutually exclusive flags
-	if lineageFlag && treeFlag {
-		return fmt.Errorf("--lineage and --tree are mutually exclusive")
-	}
+	// Create printers with options
+	tablePrinter := table.NewPrinter(os.Stdout, bootTime,
+		table.WithContainers(containerMgr),
+		table.WithColors(!noColorFlag),
+	)
+	treePrinter := tree.NewPrinter(pt,
+		tree.WithContainers(containerMgr),
+		tree.WithColors(!noColorFlag),
+	)
 
 	// Handle output based on flags
 	if len(pids) > 0 {
 		// Specific PIDs or containers requested
 		if lineageFlag {
-			// Show table with all processes in the lineage
-			printLineageTable(pt, pids, containerMgr)
+			// Collect all PIDs in the lineages
+			lineagePids := collectLineagePids(pt, pids)
+			tablePrinter.PrintLineage(tasks, lineagePids)
 		} else if treeFlag {
 			// Show tree for specified PIDs/containers
-			printContainerTree(pt, pids, containerMgr)
+			pidSet := make(map[int32]bool)
+			for _, pid := range pids {
+				pidSet[pid] = true
+			}
+			treePrinter.PrintFiltered(os.Stdout, pidSet)
 		} else {
 			// Show table for specified PIDs
-			printFilteredTable(pt, pids, containerMgr)
+			tablePrinter.PrintPIDs(tasks, pids)
 		}
 	} else {
 		// All processes
@@ -190,13 +190,29 @@ func run(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("--lineage requires at least one PID argument")
 		}
 		if treeFlag {
-			pt.PrintTreeWithContainersColored(os.Stdout, containerMgr)
+			treePrinter.PrintTree(os.Stdout)
 		} else {
-			printTable(tasks, containerMgr)
+			tablePrinter.PrintAll(tasks)
 		}
 	}
 
 	return nil
+}
+
+// collectLineagePids collects all PIDs in the lineages of the given PIDs.
+func collectLineagePids(pt *tree.ProcessTree, pids []int32) map[int32]bool {
+	lineagePids := make(map[int32]bool)
+	for _, pid := range pids {
+		lineage, err := pt.GetLineage(pid)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			continue
+		}
+		for _, td := range lineage {
+			lineagePids[td.Pid] = true
+		}
+	}
+	return lineagePids
 }
 
 func collectTasks(reader io.Reader) ([]*pkg.TaskDescriptor, error) {
@@ -232,17 +248,6 @@ func collectTasks(reader io.Reader) ([]*pkg.TaskDescriptor, error) {
 	return tasks, nil
 }
 
-func getContainerLabel(pid int32, mgr *containers.Manager) string {
-	if mgr == nil {
-		return ""
-	}
-	c := mgr.GetContainerByPID(pid)
-	if c == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s:%s:%s", c.Name, c.ID, c.Runtime)
-}
-
 // getBootTime reads the system boot time from /proc/stat
 func getBootTime() time.Time {
 	file, err := os.Open("/proc/stat")
@@ -265,107 +270,4 @@ func getBootTime() time.Time {
 		}
 	}
 	return time.Now()
-}
-
-func printTableHeader() {
-	headerColor.Printf("%-10s %-8s %-8s %-8s %-2s %5s %8s %8s %-11s %-16s %s\n",
-		"USER", "PID", "TID", "PPID", "S", "%CPU", "VSZ", "RSS", "START", "COMM", "CMDLINE (CONTAINER)")
-	separatorColor.Println("---------- -------- -------- -------- -- ----- -------- -------- ----------- ---------------- -------------------")
-}
-
-func printTableRow(td *pkg.TaskDescriptor, container string) {
-	// Truncate username if too long
-	user := td.User
-	if len(user) > 10 {
-		user = user[:9] + "+"
-	}
-	fmt.Printf("%-10s ", user)
-	pidColor.Printf("%-8d ", td.Pid)
-	fmt.Printf("%-8d %-8d ", td.Tid, td.Ppid)
-	stateColor.Printf("%-2s ", td.State.StateChar())
-	cpuColor.Printf("%5.1f ", td.CpuPercent(bootTime))
-	memColor.Printf("%8s %8s ", pkg.FormatMemory(td.Vsz), pkg.FormatMemory(td.Rss))
-	fmt.Printf("%-11s ", td.FormatStartTime(bootTime))
-	commColor.Printf("%-16s ", td.Comm)
-	// Print cmdline (variable length)
-	fmt.Printf("%s", td.Cmdline)
-	// Print container at the end if present
-	if container != "" {
-		containerColor.Printf(" (%s)", container)
-	}
-	fmt.Println()
-}
-
-func printTable(tasks []*pkg.TaskDescriptor, mgr *containers.Manager) {
-	printTableHeader()
-
-	for _, td := range tasks {
-		container := getContainerLabel(td.Pid, mgr)
-		printTableRow(td, container)
-	}
-}
-
-func printFilteredTable(pt *tree.ProcessTree, pids []int32, mgr *containers.Manager) {
-	printTableHeader()
-
-	for _, pid := range pids {
-		td := pt.Get(pid)
-		if td == nil {
-			fmt.Fprintf(os.Stderr, "Warning: PID %d not found\n", pid)
-			continue
-		}
-		container := getContainerLabel(td.Pid, mgr)
-		printTableRow(td, container)
-	}
-}
-
-// printLineageTable prints a table containing all processes in the lineage of the specified PIDs
-func printLineageTable(pt *tree.ProcessTree, pids []int32, mgr *containers.Manager) {
-	// Collect all PIDs in the lineages
-	lineagePids := make(map[int32]bool)
-	for _, pid := range pids {
-		lineage, err := pt.GetLineage(pid)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			continue
-		}
-		for _, td := range lineage {
-			lineagePids[td.Pid] = true
-		}
-	}
-
-	if len(lineagePids) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: no valid PIDs found\n")
-		return
-	}
-
-	// Convert to sorted slice for consistent output
-	var sortedPids []int32
-	for pid := range lineagePids {
-		sortedPids = append(sortedPids, pid)
-	}
-	sort.Slice(sortedPids, func(i, j int) bool {
-		return sortedPids[i] < sortedPids[j]
-	})
-
-	printTableHeader()
-	for _, pid := range sortedPids {
-		td := pt.Get(pid)
-		if td != nil {
-			container := getContainerLabel(td.Pid, mgr)
-			printTableRow(td, container)
-		}
-	}
-}
-
-// printContainerTree prints a tree showing only the specified PIDs and their descendants
-func printContainerTree(pt *tree.ProcessTree, pids []int32, mgr *containers.Manager) {
-	// Create a set of PIDs to include
-	pidSet := make(map[int32]bool)
-	for _, pid := range pids {
-		pidSet[pid] = true
-	}
-
-	// Print tree for processes in the set
-	pt.PrintSubtreeWithContainersColored(os.Stdout, pidSet, mgr)
 }
