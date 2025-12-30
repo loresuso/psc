@@ -76,7 +76,73 @@ type TaskDescriptor struct {
 	Rss       uint64 // resident set size in bytes
 	Comm      string
 	Cmdline   string
-	User      string // username resolved from Euid
+	User      string            // username resolved from Euid
+	Files     []*FileDescriptor // associated file descriptors
+}
+
+// SetFiles sets the file descriptors for this task
+func (t *TaskDescriptor) SetFiles(files []*FileDescriptor) {
+	t.Files = files
+}
+
+// AddFile adds a file descriptor to this task
+func (t *TaskDescriptor) AddFile(f *FileDescriptor) {
+	t.Files = append(t.Files, f)
+}
+
+// GetSockets returns all socket file descriptors
+func (t *TaskDescriptor) GetSockets() []*FileDescriptor {
+	var sockets []*FileDescriptor
+	for _, f := range t.Files {
+		if f.IsSocket() {
+			sockets = append(sockets, f)
+		}
+	}
+	return sockets
+}
+
+// GetTCPSockets returns all TCP socket file descriptors
+func (t *TaskDescriptor) GetTCPSockets() []*FileDescriptor {
+	var sockets []*FileDescriptor
+	for _, f := range t.Files {
+		if f.IsTCP() {
+			sockets = append(sockets, f)
+		}
+	}
+	return sockets
+}
+
+// GetUDPSockets returns all UDP socket file descriptors
+func (t *TaskDescriptor) GetUDPSockets() []*FileDescriptor {
+	var sockets []*FileDescriptor
+	for _, f := range t.Files {
+		if f.IsUDP() {
+			sockets = append(sockets, f)
+		}
+	}
+	return sockets
+}
+
+// GetUnixSockets returns all Unix socket file descriptors
+func (t *TaskDescriptor) GetUnixSockets() []*FileDescriptor {
+	var sockets []*FileDescriptor
+	for _, f := range t.Files {
+		if f.IsUnix() {
+			sockets = append(sockets, f)
+		}
+	}
+	return sockets
+}
+
+// GetRegularFiles returns all regular file descriptors (non-sockets)
+func (t *TaskDescriptor) GetRegularFiles() []*FileDescriptor {
+	var files []*FileDescriptor
+	for _, f := range t.Files {
+		if f.IsRegularFile() {
+			files = append(files, f)
+		}
+	}
+	return files
 }
 
 // rawTaskDescriptor matches the C struct layout exactly
@@ -211,4 +277,3 @@ func (t *TaskDescriptor) CpuPercent(bootTime time.Time) float64 {
 	totalCpu := time.Duration(t.Utime + t.Stime)
 	return (float64(totalCpu) / float64(elapsed)) * 100.0
 }
-

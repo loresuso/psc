@@ -117,27 +117,6 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("BPF file loader not initialized")
 	}
 
-	reader, cleanup, err := loaders.File()
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	defer reader.Close()
-	buf := make([]byte, unmarshal.FileDescriptor{}.Size())
-	for {
-		_, err := io.ReadFull(reader, buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read from iterator: %w", err)
-		}
-		var fd unmarshal.FileDescriptor
-		if err := fd.Unmarshal(buf); err != nil {
-			return fmt.Errorf("failed to unmarshal file descriptor: %w", err)
-		}
-	}
-
 	// Initialize container manager and refresh container info first
 	// (needed to resolve container names/IDs in arguments)
 	containerMgr := containers.NewDefaultManager()
@@ -165,16 +144,30 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Collect tasks
 	taskReader, taskCleanup, err := loaders.Task()
 	if err != nil {
 		return err
 	}
 	defer taskCleanup()
-	defer reader.Close()
+	defer taskReader.Close()
 
 	tasks, err := collectTasks(taskReader)
 	if err != nil {
 		return err
+	}
+
+	// Collect files and group by PID
+	filesByPid, err := collectFilesByPid()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to collect file descriptors: %v\n", err)
+	}
+
+	// Associate files with tasks
+	for _, task := range tasks {
+		if files, ok := filesByPid[task.Pid]; ok {
+			task.SetFiles(files)
+		}
 	}
 
 	// Build process tree (needed for both tree output and filtering)
@@ -286,6 +279,40 @@ func collectTasks(reader io.Reader) ([]*unmarshal.TaskDescriptor, error) {
 	}
 
 	return tasks, nil
+}
+
+// collectFilesByPid collects file descriptors and groups them by PID
+func collectFilesByPid() (map[int32][]*unmarshal.FileDescriptor, error) {
+	fileReader, fileCleanup, err := loaders.File()
+	if err != nil {
+		return nil, err
+	}
+	defer fileCleanup()
+	defer fileReader.Close()
+
+	filesByPid := make(map[int32][]*unmarshal.FileDescriptor)
+	buf := make([]byte, unmarshal.FileDescriptor{}.Size())
+
+	for {
+		_, err := io.ReadFull(fileReader, buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read from file iterator: %w", err)
+		}
+
+		var fd unmarshal.FileDescriptor
+		if err := fd.Unmarshal(buf); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal file descriptor: %w", err)
+		}
+
+		// Group by process (not thread)
+		fdCopy := fd
+		filesByPid[fd.Pid] = append(filesByPid[fd.Pid], &fdCopy)
+	}
+
+	return filesByPid, nil
 }
 
 // getBootTime reads the system boot time from /proc/stat

@@ -13,3 +13,18 @@
 
 // File descriptor field sizes
 #define FILE_PATH_LEN 256
+#define UNIX_PATH_LEN 108
+
+// File descriptor types
+#define FD_TYPE_OTHER    0
+#define FD_TYPE_FILE     1
+#define FD_TYPE_SOCKET   2
+
+// Socket families (from socket.h)
+#define AF_UNIX   1
+#define AF_INET   2
+#define AF_INET6 10
+
+// Socket types (from socket.h)
+#define SOCK_STREAM 1  // TCP
+#define SOCK_DGRAM  2  // UDP
