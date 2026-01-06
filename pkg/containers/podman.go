@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -124,12 +123,6 @@ type podmanInspect struct {
 	Image string `json:"Image"`
 }
 
-// podmanTop represents the top response
-type podmanTop struct {
-	Titles    []string   `json:"Titles"`
-	Processes [][]string `json:"Processes"`
-}
-
 // ListContainers returns all running Podman containers from all sockets
 func (p *PodmanRuntime) ListContainers() ([]*ContainerInfo, error) {
 	var result []*ContainerInfo
@@ -244,50 +237,6 @@ func (p *PodmanRuntime) getContainerInfoFromSocket(socketPath, containerID strin
 		Labels:  inspect.Config.Labels,
 		PIDs:    pids,
 	}, nil
-}
-
-// getContainerPIDsFromSocket returns all PIDs for a container from a specific socket
-func (p *PodmanRuntime) getContainerPIDsFromSocket(socketPath, containerID string) ([]int32, error) {
-	client := p.getClient(socketPath)
-
-	resp, err := client.Get(fmt.Sprintf("http://podman/v4.0.0/libpod/containers/%s/top", containerID))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Podman returned status %d", resp.StatusCode)
-	}
-
-	var top podmanTop
-	if err := json.NewDecoder(resp.Body).Decode(&top); err != nil {
-		return nil, err
-	}
-
-	// Find PID column
-	pidCol := -1
-	for i, title := range top.Titles {
-		if title == "PID" {
-			pidCol = i
-			break
-		}
-	}
-	if pidCol == -1 {
-		return nil, fmt.Errorf("PID column not found")
-	}
-
-	var pids []int32
-	for _, proc := range top.Processes {
-		if pidCol < len(proc) {
-			pid, err := strconv.ParseInt(proc[pidCol], 10, 32)
-			if err == nil {
-				pids = append(pids, int32(pid))
-			}
-		}
-	}
-
-	return pids, nil
 }
 
 // Close is a no-op for Podman

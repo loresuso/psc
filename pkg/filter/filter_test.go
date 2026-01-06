@@ -11,9 +11,9 @@ import (
 
 func TestNew(t *testing.T) {
 	tests := []struct {
-		name       string
-		expression string
-		wantErr    bool
+		name        string
+		expression  string
+		wantErr     bool
 		errContains string
 	}{
 		{
@@ -47,21 +47,21 @@ func TestNew(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "invalid - non-boolean return",
-			expression: `process.name`,
-			wantErr:    true,
+			name:        "invalid - non-boolean return",
+			expression:  `process.name`,
+			wantErr:     true,
 			errContains: "must return bool",
 		},
 		{
-			name:       "invalid - unknown field",
-			expression: `process.unknown_field == "test"`,
-			wantErr:    true,
+			name:        "invalid - unknown field",
+			expression:  `process.unknown_field == "test"`,
+			wantErr:     true,
 			errContains: "compilation error",
 		},
 		{
-			name:       "invalid - syntax error",
-			expression: `process.name ==`,
-			wantErr:    true,
+			name:        "invalid - syntax error",
+			expression:  `process.name ==`,
+			wantErr:     true,
 			errContains: "compilation error",
 		},
 	}
@@ -698,7 +698,7 @@ func BenchmarkMatchProcess(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		f.MatchProcess(task)
+		_, _ = f.MatchProcess(task)
 	}
 }
 
@@ -720,7 +720,6 @@ func BenchmarkFilterProcesses(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		f.FilterProcesses(tasks)
+		_, _ = f.FilterProcesses(tasks)
 	}
 }
-

@@ -10,7 +10,8 @@ import (
 	"github.com/loresuso/psc/cmd"
 )
 
-// Generate with: make generate
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall" tasks bpf/tasks.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall" files bpf/files.c
 
 func main() {
 	cmd.SetBPFLoaders(cmd.BPFLoaders{

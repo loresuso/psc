@@ -40,3 +40,5 @@ psc
 
 # VMLinux header
 bpf/vmlinux.h
+
+dist/
