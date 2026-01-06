@@ -5,7 +5,9 @@ import (
 	"reflect"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/ext"
+	"github.com/loresuso/psc/pkg/containers"
 	"github.com/loresuso/psc/pkg/unmarshal"
 )
 
@@ -18,8 +20,9 @@ type Filter struct {
 
 // Type names for CEL - derived from Go's reflect package
 var (
-	taskType = reflect.TypeFor[unmarshal.TaskDescriptor]()
-	fileType = reflect.TypeFor[unmarshal.FileDescriptor]()
+	taskType      = reflect.TypeFor[unmarshal.TaskDescriptor]()
+	fileType      = reflect.TypeFor[unmarshal.FileDescriptor]()
+	containerType = reflect.TypeFor[containers.ContainerInfo]()
 )
 
 // NewEnv creates a shared CEL environment with registered types.
@@ -32,10 +35,12 @@ func NewEnv() (*cel.Env, error) {
 			ext.ParseStructTags(true),
 			taskType,
 			fileType,
+			containerType,
 		),
 
 		// Declare the "process" variable as TaskDescriptor
 		// Allows expressions like: process.name == "nginx"
+		// Container info accessible via: process.container.name
 		cel.Variable("process", cel.ObjectType(taskType.String())),
 
 		// Declare "file" for file descriptor filtering
@@ -45,6 +50,47 @@ func NewEnv() (*cel.Env, error) {
 		// Declare "socket" as an alias for file (for network filtering clarity)
 		// Allows expressions like: socket.dstPort == 443
 		cel.Variable("socket", cel.ObjectType(fileType.String())),
+
+		// Declare "container" as a direct alias for process.container
+		// Allows expressions like: container.name == "nginx"
+		cel.Variable("container", cel.ObjectType(containerType.String())),
+
+		// Container runtime constants
+		// Usage: container.runtime == docker
+		cel.Constant("docker", cel.StringType, types.String("docker")),
+		cel.Constant("containerd", cel.StringType, types.String("containerd")),
+		cel.Constant("crio", cel.StringType, types.String("cri-o")),
+		cel.Constant("podman", cel.StringType, types.String("podman")),
+
+		// Socket type constants (matches unmarshal.SockStream, SockDgram)
+		// Usage: socket.sockType == tcp
+		cel.Constant("tcp", cel.UintType, types.Uint(unmarshal.SockStream)),
+		cel.Constant("udp", cel.UintType, types.Uint(unmarshal.SockDgram)),
+
+		// Socket family constants
+		// Usage: socket.sockFamily == unix
+		cel.Constant("unix", cel.UintType, types.Uint(unmarshal.AfUnix)),
+		cel.Constant("inet", cel.UintType, types.Uint(unmarshal.AfInet)),
+		cel.Constant("inet6", cel.UintType, types.Uint(unmarshal.AfInet6)),
+
+		// TCP state constants
+		// Usage: socket.sockState == listen
+		cel.Constant("established", cel.UintType, types.Uint(unmarshal.TcpEstablished)),
+		cel.Constant("listen", cel.UintType, types.Uint(unmarshal.TcpListen)),
+		cel.Constant("syn_sent", cel.UintType, types.Uint(unmarshal.TcpSynSent)),
+		cel.Constant("syn_recv", cel.UintType, types.Uint(unmarshal.TcpSynRecv)),
+		cel.Constant("fin_wait1", cel.UintType, types.Uint(unmarshal.TcpFinWait1)),
+		cel.Constant("fin_wait2", cel.UintType, types.Uint(unmarshal.TcpFinWait2)),
+		cel.Constant("time_wait", cel.UintType, types.Uint(unmarshal.TcpTimeWait)),
+		cel.Constant("close", cel.UintType, types.Uint(unmarshal.TcpClose)),
+		cel.Constant("close_wait", cel.UintType, types.Uint(unmarshal.TcpCloseWait)),
+		cel.Constant("last_ack", cel.UintType, types.Uint(unmarshal.TcpLastAck)),
+		cel.Constant("closing", cel.UintType, types.Uint(unmarshal.TcpClosing)),
+
+		// File descriptor type constants
+		// Usage: file.fdType == socket_type
+		cel.Constant("file_type", cel.UintType, types.Uint(unmarshal.FdTypeFile)),
+		cel.Constant("socket_type", cel.UintType, types.Uint(unmarshal.FdTypeSocket)),
 
 		// Enable useful string extensions
 		// Adds: .contains(), .startsWith(), .endsWith(), .split(), etc.
@@ -111,11 +157,18 @@ func (f *Filter) Expression() string {
 // MatchProcess evaluates the filter against a TaskDescriptor.
 // Use this for process-only filtering expressions.
 func (f *Filter) MatchProcess(task *unmarshal.TaskDescriptor) (bool, error) {
+	// Use EmptyContainer for non-containerized processes to allow safe field access
+	container := task.Container
+	if container == nil {
+		container = containers.EmptyContainer
+	}
+
 	result, _, err := f.program.Eval(map[string]any{
-		"process": task,
-		// Provide nil for file/socket to allow process-only expressions
-		"file":   (*unmarshal.FileDescriptor)(nil),
-		"socket": (*unmarshal.FileDescriptor)(nil),
+		"process":   task,
+		"container": container, // Always provide a valid container (empty if not containerized)
+		// Provide empty file/socket to allow safe field access
+		"file":   unmarshal.EmptyFileDescriptor,
+		"socket": unmarshal.EmptyFileDescriptor,
 	})
 	if err != nil {
 		return false, fmt.Errorf("CEL evaluation error: %w", err)
@@ -131,10 +184,16 @@ func (f *Filter) MatchProcess(task *unmarshal.TaskDescriptor) (bool, error) {
 // MatchFile evaluates the filter against a FileDescriptor.
 // Use this for file/socket-only filtering expressions.
 func (f *Filter) MatchFile(file *unmarshal.FileDescriptor) (bool, error) {
+	// Ensure file is not nil
+	if file == nil {
+		file = unmarshal.EmptyFileDescriptor
+	}
+
 	result, _, err := f.program.Eval(map[string]any{
-		"file":    file,
-		"socket":  file, // socket is an alias for file
-		"process": (*unmarshal.TaskDescriptor)(nil),
+		"file":      file,
+		"socket":    file, // socket is an alias for file
+		"process":   &unmarshal.TaskDescriptor{Container: containers.EmptyContainer},
+		"container": containers.EmptyContainer,
 	})
 	if err != nil {
 		return false, fmt.Errorf("CEL evaluation error: %w", err)
@@ -150,10 +209,17 @@ func (f *Filter) MatchFile(file *unmarshal.FileDescriptor) (bool, error) {
 // MatchProcessWithFile evaluates the filter with both process and file context.
 // Use this for combined expressions like: process.name == "nginx" && socket.dstPort == 80
 func (f *Filter) MatchProcessWithFile(task *unmarshal.TaskDescriptor, file *unmarshal.FileDescriptor) (bool, error) {
+	// Use EmptyContainer for non-containerized processes
+	container := task.Container
+	if container == nil {
+		container = containers.EmptyContainer
+	}
+
 	result, _, err := f.program.Eval(map[string]any{
-		"process": task,
-		"file":    file,
-		"socket":  file, // socket is an alias for file
+		"process":   task,
+		"container": container,
+		"file":      file,
+		"socket":    file, // socket is an alias for file
 	})
 	if err != nil {
 		return false, fmt.Errorf("CEL evaluation error: %w", err)
@@ -167,14 +233,40 @@ func (f *Filter) MatchProcessWithFile(task *unmarshal.TaskDescriptor, file *unma
 }
 
 // FilterProcesses filters a slice of TaskDescriptors, returning only those that match.
+// If a process has files/sockets, the filter is evaluated against each file.
+// A process matches if:
+//   - The process-only filter matches, OR
+//   - Any of the process's files match when evaluated with MatchProcessWithFile
 func (f *Filter) FilterProcesses(tasks []*unmarshal.TaskDescriptor) ([]*unmarshal.TaskDescriptor, error) {
 	var result []*unmarshal.TaskDescriptor
 	for _, task := range tasks {
-		match, err := f.MatchProcess(task)
-		if err != nil {
-			return nil, err
+		matched := false
+
+		// If task has files, try matching with each file
+		if len(task.Files) > 0 {
+			for _, file := range task.Files {
+				match, err := f.MatchProcessWithFile(task, file)
+				if err != nil {
+					// If file matching fails, fall back to process-only match
+					break
+				}
+				if match {
+					matched = true
+					break
+				}
+			}
 		}
-		if match {
+
+		// If no file matched (or no files), try process-only match
+		if !matched {
+			match, err := f.MatchProcess(task)
+			if err != nil {
+				return nil, err
+			}
+			matched = match
+		}
+
+		if matched {
 			result = append(result, task)
 		}
 	}

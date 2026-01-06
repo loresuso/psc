@@ -65,10 +65,11 @@ Otherwise, processes are filtered using the Google Common Expression Language (C
 
 Available Variables:
   process   - Process information
+  container - Container information (nil if not in container)
   file      - File descriptor information  
   socket    - Socket information (alias for file)
 
-Process Fields:
+Process Fields (process.X):
   name      - Process name (string)
   pid       - Process ID (int)
   ppid      - Parent process ID (int)
@@ -78,15 +79,31 @@ Process Fields:
   cmdline   - Full command line (string)
   state     - Process state (uint)
 
-File/Socket Fields:
+Container Fields (container.X):
+  id        - Container ID, empty if not in container (string)
+  name      - Container name (string)
+  image     - Container image (string)
+  runtime   - Runtime (string), compare with: docker, containerd, crio, podman
+  labels    - Container labels (map[string]string)
+
+File/Socket Fields (socket.X or file.X):
   path      - File path (string)
   fd        - File descriptor number (int)
-  srcPort   - Source port (uint, use uint() cast)
-  dstPort   - Destination port (uint, use uint() cast)
-  sockType  - Socket type: 1=TCP, 2=UDP (uint)
-  sockState - TCP state: 1=ESTABLISHED, 10=LISTEN (uint)
-  sockFamily- Address family: 1=UNIX, 2=INET, 10=INET6 (uint)
+  srcPort   - Source port (uint)
+  dstPort   - Destination port (uint)
+  sockType  - Socket type, compare with: tcp, udp
+  sockState - TCP state, compare with: listen, established, close_wait, etc.
+  sockFamily- Address family, compare with: unix, inet, inet6
   unixPath  - Unix socket path (string)
+  fdType    - FD type, compare with: file_type, socket_type
+
+Available Constants (no quotes needed):
+  Runtimes:    docker, containerd, crio, podman
+  Socket types: tcp, udp
+  Families:    unix, inet, inet6
+  TCP states:  established, listen, syn_sent, syn_recv, fin_wait1, fin_wait2,
+               time_wait, close, close_wait, last_ack, closing
+  FD types:    file_type, socket_type
 
 String Functions:
   .contains("substr")     - Check if string contains substring
@@ -120,6 +137,27 @@ Examples:
 
   # Filter by parent PID
   psc 'process.ppid == 1'
+
+  # Filter only containerized processes
+  psc 'container.id != ""'
+
+  # Filter by container name
+  psc 'container.name == "nginx"'
+
+  # Filter by container runtime (no quotes needed!)
+  psc 'container.runtime == docker'
+
+  # Filter by container image
+  psc 'container.image.contains("nginx")'
+
+  # Filter listening TCP sockets
+  psc 'socket.sockType == tcp && socket.sockState == listen'
+
+  # Filter established connections
+  psc 'socket.sockState == established'
+
+  # Filter Unix sockets
+  psc 'socket.sockFamily == unix'
 
   # Complex filter with tree output
   psc 'process.user == "root" && process.pid > 1000' --tree`,
@@ -174,6 +212,35 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Build PID->PPID map and propagate container info BEFORE filtering
+	// This allows CEL expressions to filter by container attributes
+	pidToPpid := make(map[int32]int32)
+	for _, td := range tasks {
+		pidToPpid[td.Pid] = td.Ppid
+	}
+	containerMgr.PropagateToChildren(pidToPpid)
+
+	// Associate container info with each task (for CEL filtering)
+	for _, task := range tasks {
+		if c := containerMgr.GetContainerByPID(task.Pid); c != nil {
+			task.SetContainer(c)
+		}
+	}
+
+	// Collect files and group by PID BEFORE filtering
+	// This allows CEL expressions to filter by socket/file attributes
+	filesByPid, err := collectFilesByPid()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to collect file descriptors: %v\n", err)
+	}
+
+	// Associate files with tasks BEFORE filtering
+	for _, task := range tasks {
+		if files, ok := filesByPid[task.Pid]; ok {
+			task.SetFiles(files)
+		}
+	}
+
 	// Apply CEL filter if provided
 	if celFilter != nil {
 		tasks, err = celFilter.FilterProcesses(tasks)
@@ -182,29 +249,11 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Collect files and group by PID
-	filesByPid, err := collectFilesByPid()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to collect file descriptors: %v\n", err)
-	}
-
-	// Associate files with tasks
-	for _, task := range tasks {
-		if files, ok := filesByPid[task.Pid]; ok {
-			task.SetFiles(files)
-		}
-	}
-
-	// Build process tree
+	// Build process tree (after filtering for tree output)
 	pt := tree.New()
-	pidToPpid := make(map[int32]int32)
 	for _, td := range tasks {
 		pt.Add(td)
-		pidToPpid[td.Pid] = td.Ppid
 	}
-
-	// Propagate container info to child processes
-	containerMgr.PropagateToChildren(pidToPpid)
 
 	// Create printers with options
 	tablePrinter := table.NewPrinter(os.Stdout, bootTime,

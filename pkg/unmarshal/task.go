@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/loresuso/psc/pkg/containers"
 )
 
 const TaskCommLen = 16
@@ -64,20 +66,31 @@ func (s ProcessState) StateChar() string {
 }
 
 type TaskDescriptor struct {
-	Euid      int32             `cel:"euid"`
-	Pid       int32             `cel:"pid"`
-	Tid       int32             `cel:"tid"`
-	Ppid      int32             `cel:"ppid"`
-	State     ProcessState      `cel:"state"`
-	StartTime uint64            `cel:"startTime"` // nanoseconds since boot
-	Utime     uint64            `cel:"utime"`     // user CPU time in nanoseconds
-	Stime     uint64            `cel:"stime"`     // system CPU time in nanoseconds
-	Vsz       uint64            `cel:"vsz"`       // virtual memory size in bytes
-	Rss       uint64            `cel:"rss"`       // resident set size in bytes
-	Comm      string            `cel:"name"`      // process name (comm)
-	Cmdline   string            `cel:"cmdline"`
-	User      string            `cel:"user"`  // username resolved from Euid
-	Files     []*FileDescriptor `cel:"files"` // associated file descriptors
+	Euid      int32                     `cel:"euid"`
+	Pid       int32                     `cel:"pid"`
+	Tid       int32                     `cel:"tid"`
+	Ppid      int32                     `cel:"ppid"`
+	State     ProcessState              `cel:"state"`
+	StartTime uint64                    `cel:"startTime"` // nanoseconds since boot
+	Utime     uint64                    `cel:"utime"`     // user CPU time in nanoseconds
+	Stime     uint64                    `cel:"stime"`     // system CPU time in nanoseconds
+	Vsz       uint64                    `cel:"vsz"`       // virtual memory size in bytes
+	Rss       uint64                    `cel:"rss"`       // resident set size in bytes
+	Comm      string                    `cel:"name"`      // process name (comm)
+	Cmdline   string                    `cel:"cmdline"`
+	User      string                    `cel:"user"`      // username resolved from Euid
+	Files     []*FileDescriptor         `cel:"files"`     // associated file descriptors
+	Container *containers.ContainerInfo `cel:"container"` // container info (nil if not in container)
+}
+
+// SetContainer sets the container info for this task
+func (t *TaskDescriptor) SetContainer(c *containers.ContainerInfo) {
+	t.Container = c
+}
+
+// InContainer returns true if this process is running in a container
+func (t *TaskDescriptor) InContainer() bool {
+	return t.Container != nil
 }
 
 // SetFiles sets the file descriptors for this task

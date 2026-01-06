@@ -3,6 +3,7 @@ package filter
 import (
 	"testing"
 
+	"github.com/loresuso/psc/pkg/containers"
 	"github.com/loresuso/psc/pkg/unmarshal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,8 +42,8 @@ func TestNew(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "valid socket type check",
-			expression: `socket.sockType == uint(1)`, // TCP = SockStream = 1
+			name:       "valid socket type check with constant",
+			expression: `socket.sockType == tcp`,
 			wantErr:    false,
 		},
 		{
@@ -238,8 +239,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match TCP by sockType",
-			expression: `socket.sockType == uint(1)`, // SockStream = 1 = TCP
+			name:       "match TCP by sockType with constant",
+			expression: `socket.sockType == tcp`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -248,8 +249,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match UDP by sockType",
-			expression: `socket.sockType == uint(2)`, // SockDgram = 2 = UDP
+			name:       "match UDP by sockType with constant",
+			expression: `socket.sockType == udp`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -258,8 +259,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match listening state",
-			expression: `socket.sockState == uint(10)`, // TcpListen = 10
+			name:       "match listening state with constant",
+			expression: `socket.sockState == listen`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -269,8 +270,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match established state",
-			expression: `socket.sockState == uint(1)`, // TcpEstablished = 1
+			name:       "match established state with constant",
+			expression: `socket.sockState == established`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -280,8 +281,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match unix socket family",
-			expression: `socket.sockFamily == uint(1)`, // AfUnix = 1
+			name:       "match unix socket family with constant",
+			expression: `socket.sockFamily == unix`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfUnix,
@@ -545,6 +546,149 @@ func TestNewEnv(t *testing.T) {
 	match2, err := f2.MatchProcess(task)
 	require.NoError(t, err)
 	assert.True(t, match2)
+}
+
+func TestMatchContainer(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		task       *unmarshal.TaskDescriptor
+		want       bool
+	}{
+		{
+			name:       "match container name",
+			expression: `container.name == "nginx"`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:   "abc123",
+					Name: "nginx",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "match container id",
+			expression: `container.id.startsWith("abc")`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:   "abc123def456",
+					Name: "nginx",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "match container image",
+			expression: `container.image.contains("nginx")`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:    "abc123",
+					Name:  "web",
+					Image: "nginx:latest",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "match container runtime with constant",
+			expression: `container.runtime == docker`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:      "abc123",
+					Name:    "web",
+					Runtime: "docker",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "check if in container using id != empty",
+			expression: `container.id != ""`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:   "abc123",
+					Name: "nginx",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "not in container - id is empty",
+			expression: `container.id != ""`,
+			task: &unmarshal.TaskDescriptor{
+				Comm:      "nginx",
+				Container: nil,
+			},
+			want: false,
+		},
+		{
+			name:       "combined process and container filter",
+			expression: `process.name == "nginx" && container.image.contains("nginx")`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:    "abc123",
+					Name:  "web",
+					Image: "nginx:1.21",
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "container labels access",
+			expression: `"app" in container.labels`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:     "abc123",
+					Name:   "web",
+					Labels: map[string]string{"app": "nginx", "env": "prod"},
+				},
+			},
+			want: true,
+		},
+		{
+			name:       "no match - wrong container name",
+			expression: `container.name == "redis"`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				Container: &containers.ContainerInfo{
+					ID:   "abc123",
+					Name: "nginx",
+				},
+			},
+			want: false,
+		},
+		{
+			name:       "filter containerized processes only",
+			expression: `container.id != "" && process.user == "root"`,
+			task: &unmarshal.TaskDescriptor{
+				Comm: "nginx",
+				User: "root",
+				Container: &containers.ContainerInfo{
+					ID:   "abc123",
+					Name: "nginx",
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := New(tt.expression)
+			require.NoError(t, err)
+
+			got, err := f.MatchProcess(tt.task)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // Benchmark tests

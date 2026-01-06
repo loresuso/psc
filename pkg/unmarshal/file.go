@@ -71,6 +71,10 @@ type FileDescriptor struct {
 	UnixPath string `cel:"unixPath"`
 }
 
+// EmptyFileDescriptor is used when no file context is available.
+// This allows CEL expressions to safely access socket/file fields without nil checks.
+var EmptyFileDescriptor = &FileDescriptor{}
+
 func (f *FileDescriptor) String() string {
 	switch f.FdType {
 	case FdTypeSocket:
