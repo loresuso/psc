@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/loresuso/psc/pkg/containers"
+	"github.com/loresuso/psc/pkg/filter"
 	"github.com/loresuso/psc/pkg/table"
 	"github.com/loresuso/psc/pkg/tree"
 	"github.com/loresuso/psc/pkg/unmarshal"
@@ -18,7 +19,6 @@ import (
 
 var (
 	treeFlag    bool
-	lineageFlag bool
 	noColorFlag bool
 )
 
@@ -56,19 +56,42 @@ func GetFileLoader() BPFLoader {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "psc [pid|container...]",
-	Short: "Process scanner using eBPF",
-	Long: `A tool to list and visualize processes using eBPF iterators.
+	Use:   "psc [expression]",
+	Short: "Process scanner using eBPF with CEL filtering",
+	Long: `A tool to list and filter processes using eBPF iterators and CEL expressions.
 
-Arguments can be PIDs (integers), container IDs (full or prefix), or container names.
+If no expression is provided, all processes are shown.
+Otherwise, processes are filtered using the Google Common Expression Language (CEL).
 
-If no arguments are specified, all processes are shown.
-If PIDs are specified, only those processes are shown.
-If container IDs/names are specified, only processes in those containers are shown.
+Available Variables:
+  process   - Process information
+  file      - File descriptor information  
+  socket    - Socket information (alias for file)
 
-Flags:
-  --tree (-t)     Display processes as a tree structure
-  --lineage (-l)  Show all ancestors of specified PIDs in a table (mutually exclusive with --tree)
+Process Fields:
+  name      - Process name (string)
+  pid       - Process ID (int)
+  ppid      - Parent process ID (int)
+  tid       - Thread ID (int)
+  euid      - Effective user ID (int)
+  user      - Username (string)
+  cmdline   - Full command line (string)
+  state     - Process state (uint)
+
+File/Socket Fields:
+  path      - File path (string)
+  fd        - File descriptor number (int)
+  srcPort   - Source port (uint, use uint() cast)
+  dstPort   - Destination port (uint, use uint() cast)
+  sockType  - Socket type: 1=TCP, 2=UDP (uint)
+  sockState - TCP state: 1=ESTABLISHED, 10=LISTEN (uint)
+  sockFamily- Address family: 1=UNIX, 2=INET, 10=INET6 (uint)
+  unixPath  - Unix socket path (string)
+
+String Functions:
+  .contains("substr")     - Check if string contains substring
+  .startsWith("prefix")   - Check if string starts with prefix
+  .endsWith("suffix")     - Check if string ends with suffix
 
 Examples:
   # List all processes
@@ -77,31 +100,36 @@ Examples:
   # Show all processes as a tree
   psc --tree
 
-  # Show details for specific PIDs
-  psc 1234 5678
+  # Filter by process name
+  psc 'process.name == "nginx"'
 
-  # Show all processes in a container (by name)
-  psc nginx
+  # Filter by user
+  psc 'process.user == "root"'
 
-  # Show all processes in a container (by ID prefix)
-  psc a1b2c3
+  # Filter using OR conditions
+  psc 'process.name == "bash" || process.name == "zsh"'
 
-  # Show container processes as a tree
-  psc nginx --tree
+  # Filter by cmdline content
+  psc 'process.cmdline.contains("--config")'
 
-  # Show full ancestry (lineage) of a process
-  psc 1234 --lineage
+  # Filter by name prefix
+  psc 'process.name.startsWith("systemd")'
 
-  # Combine multiple containers and PIDs
-  psc nginx redis 9999`,
+  # Filter by PID
+  psc 'process.pid == 1234'
+
+  # Filter by parent PID
+  psc 'process.ppid == 1'
+
+  # Complex filter with tree output
+  psc 'process.user == "root" && process.pid > 1000' --tree`,
 	RunE: run,
+	Args: cobra.MaximumNArgs(1),
 }
 
 func init() {
 	rootCmd.Flags().BoolVarP(&treeFlag, "tree", "t", false, "Print processes as a tree")
-	rootCmd.Flags().BoolVarP(&lineageFlag, "lineage", "l", false, "Show full lineage (ancestors) for specified PIDs")
 	rootCmd.Flags().BoolVar(&noColorFlag, "no-color", false, "Disable colored output")
-	rootCmd.MarkFlagsMutuallyExclusive("tree", "lineage")
 }
 
 // Execute runs the root command
@@ -117,31 +145,20 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("BPF file loader not initialized")
 	}
 
-	// Initialize container manager and refresh container info first
-	// (needed to resolve container names/IDs in arguments)
+	// Compile CEL filter expression if provided
+	var celFilter *filter.Filter
+	if len(args) > 0 && args[0] != "" {
+		var err error
+		celFilter, err = filter.New(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid CEL expression: %w", err)
+		}
+	}
+
+	// Initialize container manager for container info display
 	containerMgr := containers.NewDefaultManager()
 	if err := containerMgr.Refresh(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to refresh container info: %v\n", err)
-	}
-
-	// Parse arguments: can be PIDs (integers) or container IDs/names (strings)
-	var pids []int32
-	var containerFilters []*containers.ContainerInfo
-
-	for _, arg := range args {
-		// Try to parse as PID first
-		if pid, err := strconv.ParseInt(arg, 10, 32); err == nil {
-			pids = append(pids, int32(pid))
-			continue
-		}
-
-		// Otherwise, try to find a container by ID or name
-		container := containerMgr.GetContainerByIDOrName(arg)
-		if container != nil {
-			containerFilters = append(containerFilters, container)
-		} else {
-			return fmt.Errorf("argument %q is not a valid PID or known container ID/name", arg)
-		}
 	}
 
 	// Collect tasks
@@ -157,6 +174,14 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Apply CEL filter if provided
+	if celFilter != nil {
+		tasks, err = celFilter.FilterProcesses(tasks)
+		if err != nil {
+			return fmt.Errorf("filter evaluation failed: %w", err)
+		}
+	}
+
 	// Collect files and group by PID
 	filesByPid, err := collectFilesByPid()
 	if err != nil {
@@ -170,7 +195,7 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build process tree (needed for both tree output and filtering)
+	// Build process tree
 	pt := tree.New()
 	pidToPpid := make(map[int32]int32)
 	for _, td := range tasks {
@@ -180,14 +205,6 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// Propagate container info to child processes
 	containerMgr.PropagateToChildren(pidToPpid)
-
-	// If container filters are specified, get all PIDs for those containers
-	if len(containerFilters) > 0 {
-		for _, c := range containerFilters {
-			containerPids := containerMgr.GetPIDsForContainer(c.ID)
-			pids = append(pids, containerPids...)
-		}
-	}
 
 	// Create printers with options
 	tablePrinter := table.NewPrinter(os.Stdout, bootTime,
@@ -199,53 +216,14 @@ func run(cmd *cobra.Command, args []string) error {
 		tree.WithColors(!noColorFlag),
 	)
 
-	// Handle output based on flags
-	if len(pids) > 0 {
-		// Specific PIDs or containers requested
-		if lineageFlag {
-			// Collect all PIDs in the lineages
-			lineagePids := collectLineagePids(pt, pids)
-			tablePrinter.PrintLineage(tasks, lineagePids)
-		} else if treeFlag {
-			// Show tree for specified PIDs/containers
-			pidSet := make(map[int32]bool)
-			for _, pid := range pids {
-				pidSet[pid] = true
-			}
-			treePrinter.PrintFiltered(os.Stdout, pidSet)
-		} else {
-			// Show table for specified PIDs
-			tablePrinter.PrintPIDs(tasks, pids)
-		}
+	// Output results
+	if treeFlag {
+		treePrinter.PrintTree(os.Stdout)
 	} else {
-		// All processes
-		if lineageFlag {
-			return fmt.Errorf("--lineage requires at least one PID argument")
-		}
-		if treeFlag {
-			treePrinter.PrintTree(os.Stdout)
-		} else {
-			tablePrinter.PrintAll(tasks)
-		}
+		tablePrinter.PrintAll(tasks)
 	}
 
 	return nil
-}
-
-// collectLineagePids collects all PIDs in the lineages of the given PIDs.
-func collectLineagePids(pt *tree.ProcessTree, pids []int32) map[int32]bool {
-	lineagePids := make(map[int32]bool)
-	for _, pid := range pids {
-		lineage, err := pt.GetLineage(pid)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			continue
-		}
-		for _, td := range lineage {
-			lineagePids[td.Pid] = true
-		}
-	}
-	return lineagePids
 }
 
 func collectTasks(reader io.Reader) ([]*unmarshal.TaskDescriptor, error) {

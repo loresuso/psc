@@ -47,28 +47,28 @@ const (
 )
 
 type FileDescriptor struct {
-	Pid  int32
-	Tid  int32
-	Ppid int32
-	Fd   int32
+	Pid  int32 `cel:"pid"`
+	Tid  int32 `cel:"tid"`
+	Ppid int32 `cel:"ppid"`
+	Fd   int32 `cel:"fd"`
 
 	// Type information
-	FdType     uint8
-	SockFamily uint8
-	SockType   uint8
-	SockState  uint8
+	FdType     uint8 `cel:"fdType"`
+	SockFamily uint8 `cel:"sockFamily"`
+	SockType   uint8 `cel:"sockType"`
+	SockState  uint8 `cel:"sockState"`
 
 	// For regular files
-	Path string
+	Path string `cel:"path"`
 
 	// For inet sockets
-	SrcAddr net.IP
-	DstAddr net.IP
-	SrcPort uint16
-	DstPort uint16
+	SrcAddr net.IP `cel:"srcAddr"`
+	DstAddr net.IP `cel:"dstAddr"`
+	SrcPort uint16 `cel:"srcPort"`
+	DstPort uint16 `cel:"dstPort"`
 
 	// For unix sockets
-	UnixPath string
+	UnixPath string `cel:"unixPath"`
 }
 
 func (f *FileDescriptor) String() string {
@@ -169,6 +169,63 @@ func (f *FileDescriptor) IsUnix() bool {
 // IsRegularFile returns true if this is a regular file (not a socket)
 func (f *FileDescriptor) IsRegularFile() bool {
 	return f.FdType == FdTypeFile
+}
+
+// CEL-friendly helper methods for filtering
+
+// SrcAddrStr returns the source address as a string (for CEL filtering)
+func (f *FileDescriptor) SrcAddrStr() string {
+	if f.SrcAddr == nil {
+		return ""
+	}
+	return f.SrcAddr.String()
+}
+
+// DstAddrStr returns the destination address as a string (for CEL filtering)
+func (f *FileDescriptor) DstAddrStr() string {
+	if f.DstAddr == nil {
+		return ""
+	}
+	return f.DstAddr.String()
+}
+
+// Protocol returns the protocol as a string ("tcp", "udp", "unix", or "other")
+func (f *FileDescriptor) Protocol() string {
+	if f.FdType != FdTypeSocket {
+		return "file"
+	}
+	switch f.SockFamily {
+	case AfUnix:
+		return "unix"
+	case AfInet, AfInet6:
+		switch f.SockType {
+		case SockStream:
+			return "tcp"
+		case SockDgram:
+			return "udp"
+		}
+	}
+	return "other"
+}
+
+// State returns the socket state as a string (for CEL filtering)
+func (f *FileDescriptor) State() string {
+	return f.StateString()
+}
+
+// IsListening returns true if this is a listening socket
+func (f *FileDescriptor) IsListening() bool {
+	return f.FdType == FdTypeSocket && f.SockState == TcpListen
+}
+
+// IsEstablished returns true if this is an established TCP connection
+func (f *FileDescriptor) IsEstablished() bool {
+	return f.FdType == FdTypeSocket && f.SockState == TcpEstablished
+}
+
+// Port returns the local port (srcPort) for convenience
+func (f *FileDescriptor) Port() uint16 {
+	return f.SrcPort
 }
 
 // rawFileDescriptor matches the C struct layout exactly
