@@ -43,7 +43,7 @@ func TestNew(t *testing.T) {
 		},
 		{
 			name:       "valid socket type check with constant",
-			expression: `socket.sockType == tcp`,
+			expression: `socket.type == tcp`,
 			wantErr:    false,
 		},
 		{
@@ -239,8 +239,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match TCP by sockType with constant",
-			expression: `socket.sockType == tcp`,
+			name:       "match TCP by type with constant",
+			expression: `socket.type == tcp`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -249,8 +249,8 @@ func TestMatchSocket(t *testing.T) {
 			want: true,
 		},
 		{
-			name:       "match UDP by sockType with constant",
-			expression: `socket.sockType == udp`,
+			name:       "match UDP by type with constant",
+			expression: `socket.type == udp`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -260,7 +260,7 @@ func TestMatchSocket(t *testing.T) {
 		},
 		{
 			name:       "match listening state with constant",
-			expression: `socket.sockState == listen`,
+			expression: `socket.state == listen`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -271,7 +271,7 @@ func TestMatchSocket(t *testing.T) {
 		},
 		{
 			name:       "match established state with constant",
-			expression: `socket.sockState == established`,
+			expression: `socket.state == established`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -282,7 +282,7 @@ func TestMatchSocket(t *testing.T) {
 		},
 		{
 			name:       "match unix socket family with constant",
-			expression: `socket.sockFamily == unix`,
+			expression: `socket.family == unix`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfUnix,

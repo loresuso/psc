@@ -91,9 +91,9 @@ File/Socket Fields (socket.X or file.X):
   fd        - File descriptor number (int)
   srcPort   - Source port (uint)
   dstPort   - Destination port (uint)
-  sockType  - Socket type, compare with: tcp, udp
-  sockState - TCP state, compare with: listen, established, close_wait, etc.
-  sockFamily- Address family, compare with: unix, inet, inet6
+  type      - Socket type, compare with: tcp, udp
+  state     - TCP state, compare with: listen, established, close_wait, etc.
+  family    - Address family, compare with: unix, inet, inet6
   unixPath  - Unix socket path (string)
   fdType    - FD type, compare with: file_type, socket_type
 
@@ -151,13 +151,13 @@ Examples:
   psc 'container.image.contains("nginx")'
 
   # Filter listening TCP sockets
-  psc 'socket.sockType == tcp && socket.sockState == listen'
+  psc 'socket.type == tcp && socket.state == listen'
 
   # Filter established connections
-  psc 'socket.sockState == established'
+  psc 'socket.state == established'
 
   # Filter Unix sockets
-  psc 'socket.sockFamily == unix'
+  psc 'socket.family == unix'
 
   # Complex filter with tree output
   psc 'process.user == "root" && process.pid > 1000' --tree`,

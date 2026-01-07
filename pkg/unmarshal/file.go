@@ -54,9 +54,9 @@ type FileDescriptor struct {
 
 	// Type information
 	FdType     uint8 `cel:"fdType"`
-	SockFamily uint8 `cel:"sockFamily"`
-	SockType   uint8 `cel:"sockType"`
-	SockState  uint8 `cel:"sockState"`
+	SockFamily uint8 `cel:"family"`
+	SockType   uint8 `cel:"type"`
+	SockState  uint8 `cel:"state"`
 
 	// For regular files
 	Path string `cel:"path"`

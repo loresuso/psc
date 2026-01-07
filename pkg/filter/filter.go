@@ -63,18 +63,18 @@ func NewEnv() (*cel.Env, error) {
 		cel.Constant("podman", cel.StringType, types.String("podman")),
 
 		// Socket type constants (matches unmarshal.SockStream, SockDgram)
-		// Usage: socket.sockType == tcp
+		// Usage: socket.type == tcp
 		cel.Constant("tcp", cel.UintType, types.Uint(unmarshal.SockStream)),
 		cel.Constant("udp", cel.UintType, types.Uint(unmarshal.SockDgram)),
 
 		// Socket family constants
-		// Usage: socket.sockFamily == unix
+		// Usage: socket.family == unix
 		cel.Constant("unix", cel.UintType, types.Uint(unmarshal.AfUnix)),
 		cel.Constant("inet", cel.UintType, types.Uint(unmarshal.AfInet)),
 		cel.Constant("inet6", cel.UintType, types.Uint(unmarshal.AfInet6)),
 
 		// TCP state constants
-		// Usage: socket.sockState == listen
+		// Usage: socket.state == listen
 		cel.Constant("established", cel.UintType, types.Uint(unmarshal.TcpEstablished)),
 		cel.Constant("listen", cel.UintType, types.Uint(unmarshal.TcpListen)),
 		cel.Constant("syn_sent", cel.UintType, types.Uint(unmarshal.TcpSynSent)),
