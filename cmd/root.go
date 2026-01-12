@@ -172,6 +172,9 @@ func init() {
 	rootCmd.Flags().StringVarP(&outputFlag, "output", "o", "", `Output columns. Use preset or comma-separated fields.
 Presets: sockets, files, containers, network
 Example: -o sockets  or  -o process.pid,process.name,socket.srcPort`)
+
+	// Tree view and custom output are mutually exclusive
+	rootCmd.MarkFlagsMutuallyExclusive("tree", "output")
 }
 
 // Execute runs the root command
