@@ -182,9 +182,24 @@ psc 'file.path.startsWith("/etc")'
 - `ppid` - Parent process ID (int)
 - `tid` - Thread ID (int)
 - `euid` - Effective user ID (int)
+- `ruid` - Real user ID (int)
+- `suid` - Saved set-user-ID (int)
 - `user` - Username (string)
 - `cmdline` - Full command line (string)
 - `state` - Process state (uint)
+
+**Capability fields** (`process.capabilities.X`):
+- `effective` - Effective capabilities bitmask (uint)
+- `permitted` - Permitted capabilities bitmask (uint)
+- `inheritable` - Inheritable capabilities bitmask (uint)
+
+**Namespace fields** (`process.namespaces.X`):
+- `net` - Network namespace inode (uint)
+- `pid` - PID namespace inode (uint)
+- `mnt` - Mount namespace inode (uint)
+- `uts` - UTS namespace inode (uint)
+- `ipc` - IPC namespace inode (uint)
+- `cgroup` - Cgroup namespace inode (uint)
 
 **Container fields** (`container.X`):
 - `id` - Container ID (string)
@@ -277,6 +292,24 @@ Find processes listening on privileged ports:
 
 ```bash
 psc 'socket.state == listen && socket.srcPort < uint(1024)'
+```
+
+Find processes in a different network namespace (useful for container/pod inspection):
+
+```bash
+psc 'process.namespaces.net != uint(4026531840)' -o process.pid,process.name,process.namespaces.net
+```
+
+Show capabilities for privileged processes:
+
+```bash
+psc 'process.euid == 0' -o process.pid,process.name,process.capabilities.effective,process.capabilities.permitted
+```
+
+Find processes that elevated privileges via SUID binaries (real UID differs from effective UID):
+
+```bash
+psc 'process.ruid != process.euid'
 ```
 
 Find Docker containers running as root:

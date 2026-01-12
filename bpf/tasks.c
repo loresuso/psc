@@ -9,7 +9,9 @@ char LICENSE[] SEC("license") = "GPL";
 static unsigned long entries[MAX_STACK_TRACE_DEPTH];
 
 struct task_descriptor {
-    int euid;
+	int euid;
+	int ruid;                 
+	int suid;                
 	int pid;
 	int tid;
 	int ppid;
@@ -19,6 +21,18 @@ struct task_descriptor {
 	unsigned long stime;      // System CPU time in nanoseconds
 	unsigned long vsz;        // Virtual memory size in bytes
 	unsigned long rss;        // Resident set size in bytes
+	// Capabilities
+	unsigned long cap_effective;
+	unsigned long cap_permitted;
+	unsigned long cap_inheritable;
+	// Namespace inodes
+	unsigned int ns_uts;
+	unsigned int ns_ipc;
+	unsigned int ns_mnt;
+	unsigned int ns_pid;
+	unsigned int ns_net;
+	unsigned int ns_cgroup;
+	unsigned int _pad;        // padding for alignment
 	char comm[TASK_COMM_LEN];
 	// Note: cmdline is read from /proc in userspace as BPF iterators
 	// have restrictions on reading userspace memory
@@ -27,9 +41,14 @@ struct task_descriptor {
 static __always_inline void fill_task_descriptor(struct task_descriptor *td, struct task_struct *task)
 {
 	struct mm_struct *mm;
+	struct nsproxy *nsp;
 	s64 rss_file, rss_anon, rss_shmem;
 
-    td->euid = task->cred->euid.val;
+	// UIDs from credentials
+	td->euid = task->cred->euid.val;
+	td->ruid = task->cred->uid.val;
+	td->suid = task->cred->suid.val;
+
 	td->pid = task->tgid;
 	td->tid = task->pid;
 	td->ppid = task->real_parent->tgid;
@@ -37,6 +56,11 @@ static __always_inline void fill_task_descriptor(struct task_descriptor *td, str
 	td->start_time = task->start_time;
 	td->utime = task->utime;
 	td->stime = task->stime;
+
+	// Capabilities from credentials
+	td->cap_effective = task->cred->cap_effective.val;
+	td->cap_permitted = task->cred->cap_permitted.val;
+	td->cap_inheritable = task->cred->cap_inheritable.val;
 
 	// Get memory info from mm_struct
 	mm = task->mm;
@@ -60,6 +84,23 @@ static __always_inline void fill_task_descriptor(struct task_descriptor *td, str
 	} else {
 		td->vsz = 0;
 		td->rss = 0;
+	}
+
+	// Namespace inodes from nsproxy
+	nsp = task->nsproxy;
+	if (nsp) {
+		if (nsp->uts_ns)
+			td->ns_uts = nsp->uts_ns->ns.inum;
+		if (nsp->ipc_ns)
+			td->ns_ipc = nsp->ipc_ns->ns.inum;
+		if (nsp->mnt_ns)
+			td->ns_mnt = nsp->mnt_ns->ns.inum;
+		if (nsp->pid_ns_for_children)
+			td->ns_pid = nsp->pid_ns_for_children->ns.inum;
+		if (nsp->net_ns)
+			td->ns_net = nsp->net_ns->ns.inum;
+		if (nsp->cgroup_ns)
+			td->ns_cgroup = nsp->cgroup_ns->ns.inum;
 	}
 
 	bpf_probe_read_str(&td->comm, sizeof(td->comm), task->comm);

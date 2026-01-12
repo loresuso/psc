@@ -26,9 +26,11 @@ type MatchResult struct {
 
 // Type names for CEL - derived from Go's reflect package
 var (
-	taskType      = reflect.TypeFor[unmarshal.TaskDescriptor]()
-	fileType      = reflect.TypeFor[unmarshal.FileDescriptor]()
-	containerType = reflect.TypeFor[containers.ContainerInfo]()
+	taskType         = reflect.TypeFor[unmarshal.TaskDescriptor]()
+	fileType         = reflect.TypeFor[unmarshal.FileDescriptor]()
+	containerType    = reflect.TypeFor[containers.ContainerInfo]()
+	capabilitiesType = reflect.TypeFor[unmarshal.Capabilities]()
+	namespacesType   = reflect.TypeFor[unmarshal.Namespaces]()
 )
 
 // NewEnv creates a shared CEL environment with registered types.
@@ -42,6 +44,8 @@ func NewEnv() (*cel.Env, error) {
 			taskType,
 			fileType,
 			containerType,
+			capabilitiesType,
+			namespacesType,
 		),
 
 		// Declare the "process" variable as TaskDescriptor

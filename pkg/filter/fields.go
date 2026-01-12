@@ -62,6 +62,16 @@ func GetCELSchema() *CELSchema {
 				Fields:      extractFieldsWithGetters("process", reflect.TypeFor[unmarshal.TaskDescriptor](), processFieldGetters),
 			},
 			{
+				Name:        "process.capabilities",
+				Description: "Process capabilities (effective, permitted, inheritable)",
+				Fields:      extractFieldsWithGetters("process.capabilities", reflect.TypeFor[unmarshal.Capabilities](), capabilitiesFieldGetters),
+			},
+			{
+				Name:        "process.namespaces",
+				Description: "Process namespace inode numbers",
+				Fields:      extractFieldsWithGetters("process.namespaces", reflect.TypeFor[unmarshal.Namespaces](), namespacesFieldGetters),
+			},
+			{
 				Name:        "container",
 				Description: "Container information (empty if not in container)",
 				Fields:      extractFieldsWithGetters("container", reflect.TypeFor[containers.ContainerInfo](), containerFieldGetters),
@@ -211,6 +221,12 @@ var processFieldGetters = map[string]FieldGetter{
 	"euid": func(r *MatchResult, _ int, _ time.Time) string {
 		return fmt.Sprintf("%d", r.Task.Euid)
 	},
+	"ruid": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ruid)
+	},
+	"suid": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Suid)
+	},
 	"user": func(r *MatchResult, _ int, _ time.Time) string {
 		return r.Task.User
 	},
@@ -237,6 +253,41 @@ var processFieldGetters = map[string]FieldGetter{
 	},
 	"rss": func(r *MatchResult, _ int, _ time.Time) string {
 		return unmarshal.FormatMemory(r.Task.Rss)
+	},
+}
+
+// Field getters for capabilities (accessed via process.capabilities.X)
+var capabilitiesFieldGetters = map[string]FieldGetter{
+	"effective": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("0x%016x", r.Task.Caps.Effective)
+	},
+	"permitted": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("0x%016x", r.Task.Caps.Permitted)
+	},
+	"inheritable": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("0x%016x", r.Task.Caps.Inheritable)
+	},
+}
+
+// Field getters for namespaces (accessed via process.namespaces.X)
+var namespacesFieldGetters = map[string]FieldGetter{
+	"uts": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Uts)
+	},
+	"ipc": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Ipc)
+	},
+	"mnt": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Mnt)
+	},
+	"pid": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Pid)
+	},
+	"net": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Net)
+	},
+	"cgroup": func(r *MatchResult, _ int, _ time.Time) string {
+		return fmt.Sprintf("%d", r.Task.Ns.Cgroup)
 	},
 }
 

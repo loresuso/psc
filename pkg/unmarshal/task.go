@@ -15,6 +15,23 @@ import (
 
 const TaskCommLen = 16
 
+// Capabilities holds the Linux capability sets for a process
+type Capabilities struct {
+	Effective   uint64 `cel:"effective"`
+	Permitted   uint64 `cel:"permitted"`
+	Inheritable uint64 `cel:"inheritable"`
+}
+
+// Namespaces holds the namespace inode numbers for a process
+type Namespaces struct {
+	Uts    uint64 `cel:"uts"`
+	Ipc    uint64 `cel:"ipc"`
+	Mnt    uint64 `cel:"mnt"`
+	Pid    uint64 `cel:"pid"`
+	Net    uint64 `cel:"net"`
+	Cgroup uint64 `cel:"cgroup"`
+}
+
 // ProcessState represents the Linux process state
 type ProcessState uint32
 
@@ -67,6 +84,8 @@ func (s ProcessState) StateChar() string {
 
 type TaskDescriptor struct {
 	Euid      int32                     `cel:"euid"`
+	Ruid      int32                     `cel:"ruid"`
+	Suid      int32                     `cel:"suid"`
 	Pid       int32                     `cel:"pid"`
 	Tid       int32                     `cel:"tid"`
 	Ppid      int32                     `cel:"ppid"`
@@ -78,9 +97,11 @@ type TaskDescriptor struct {
 	Rss       uint64                    `cel:"rss"`       // resident set size in bytes
 	Comm      string                    `cel:"name"`      // process name (comm)
 	Cmdline   string                    `cel:"cmdline"`
-	User      string                    `cel:"user"`      // username resolved from Euid
-	Files     []*FileDescriptor         `cel:"files"`     // associated file descriptors
-	Container *containers.ContainerInfo `cel:"container"` // container info (nil if not in container)
+	User      string                    `cel:"user"`         // username resolved from Euid
+	Caps      Capabilities              `cel:"capabilities"` // process capabilities
+	Ns        Namespaces                `cel:"namespaces"`   // process namespaces
+	Files     []*FileDescriptor         `cel:"files"`        // associated file descriptors
+	Container *containers.ContainerInfo `cel:"container"`    // container info (nil if not in container)
 }
 
 // SetContainer sets the container info for this task
@@ -161,33 +182,58 @@ func (t *TaskDescriptor) GetRegularFiles() []*FileDescriptor {
 // rawTaskDescriptor matches the C struct layout exactly
 // C struct layout (64-bit system):
 //
-//	int euid;                 // offset 0, 4 bytes
-//	int pid;                  // offset 4, 4 bytes
-//	int tid;                  // offset 8, 4 bytes
-//	int ppid;                 // offset 12, 4 bytes
-//	unsigned int state;       // offset 16, 4 bytes
-//	<padding>                 // offset 20, 4 bytes (for 8-byte alignment)
-//	unsigned long start_time; // offset 24, 8 bytes
-//	unsigned long utime;      // offset 32, 8 bytes
-//	unsigned long stime;      // offset 40, 8 bytes
-//	unsigned long vsz;        // offset 48, 8 bytes
-//	unsigned long rss;        // offset 56, 8 bytes
-//	char comm[16];            // offset 64, 16 bytes
+//	int euid;                     // offset 0, 4 bytes
+//	int ruid;                     // offset 4, 4 bytes
+//	int suid;                     // offset 8, 4 bytes
+//	int pid;                      // offset 12, 4 bytes
+//	int tid;                      // offset 16, 4 bytes
+//	int ppid;                     // offset 20, 4 bytes
+//	unsigned int state;           // offset 24, 4 bytes
+//	<padding>                     // offset 28, 4 bytes (for 8-byte alignment)
+//	unsigned long start_time;     // offset 32, 8 bytes
+//	unsigned long utime;          // offset 40, 8 bytes
+//	unsigned long stime;          // offset 48, 8 bytes
+//	unsigned long vsz;            // offset 56, 8 bytes
+//	unsigned long rss;            // offset 64, 8 bytes
+//	unsigned long cap_effective;  // offset 72, 8 bytes
+//	unsigned long cap_permitted;  // offset 80, 8 bytes
+//	unsigned long cap_inheritable;// offset 88, 8 bytes
+//	unsigned int ns_uts;          // offset 96, 4 bytes
+//	unsigned int ns_ipc;          // offset 100, 4 bytes
+//	unsigned int ns_mnt;          // offset 104, 4 bytes
+//	unsigned int ns_pid;          // offset 108, 4 bytes
+//	unsigned int ns_net;          // offset 112, 4 bytes
+//	unsigned int ns_cgroup;       // offset 116, 4 bytes
+//	unsigned int _pad;            // offset 120, 4 bytes
+//	char comm[16];                // offset 124, 16 bytes
 //
-// Total: 80 bytes
+// Total: 140 bytes (+ padding to 144 for alignment)
 type rawTaskDescriptor struct {
-	Euid      int32
-	Pid       int32
-	Tid       int32
-	Ppid      int32
-	State     uint32
-	_         uint32 // padding for 8-byte alignment
-	StartTime uint64
-	Utime     uint64
-	Stime     uint64
-	Vsz       uint64
-	Rss       uint64
-	Comm      [TaskCommLen]byte
+	Euid           int32
+	Ruid           int32
+	Suid           int32
+	Pid            int32
+	Tid            int32
+	Ppid           int32
+	State          uint32
+	Pad0           uint32 // padding for 8-byte alignment
+	StartTime      uint64
+	Utime          uint64
+	Stime          uint64
+	Vsz            uint64
+	Rss            uint64
+	CapEffective   uint64
+	CapPermitted   uint64
+	CapInheritable uint64
+	NsUts          uint32
+	NsIpc          uint32
+	NsMnt          uint32
+	NsPid          uint32
+	NsNet          uint32
+	NsCgroup       uint32
+	Pad1           uint32 // padding
+	Comm           [TaskCommLen]byte
+	Pad2           uint32 // end padding for 8-byte struct alignment
 }
 
 func (t *TaskDescriptor) Unmarshal(data []byte) error {
@@ -204,6 +250,8 @@ func (t *TaskDescriptor) Unmarshal(data []byte) error {
 	comm := string(bytes.TrimRight(raw.Comm[:], "\x00"))
 
 	t.Euid = raw.Euid
+	t.Ruid = raw.Ruid
+	t.Suid = raw.Suid
 	t.Pid = raw.Pid
 	t.Tid = raw.Tid
 	t.Ppid = raw.Ppid
@@ -214,6 +262,23 @@ func (t *TaskDescriptor) Unmarshal(data []byte) error {
 	t.Vsz = raw.Vsz
 	t.Rss = raw.Rss
 	t.Comm = comm
+
+	// Capabilities
+	t.Caps = Capabilities{
+		Effective:   raw.CapEffective,
+		Permitted:   raw.CapPermitted,
+		Inheritable: raw.CapInheritable,
+	}
+
+	// Namespaces
+	t.Ns = Namespaces{
+		Uts:    uint64(raw.NsUts),
+		Ipc:    uint64(raw.NsIpc),
+		Mnt:    uint64(raw.NsMnt),
+		Pid:    uint64(raw.NsPid),
+		Net:    uint64(raw.NsNet),
+		Cgroup: uint64(raw.NsCgroup),
+	}
 
 	return nil
 }
