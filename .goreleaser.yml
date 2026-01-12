@@ -21,9 +21,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X github.com/loresuso/psc/cmd.Version={{.Version}}
+      - -X github.com/loresuso/psc/cmd.Commit={{.Commit}}
+      - -X github.com/loresuso/psc/cmd.BuildDate={{.Date}}
 
 archives:
   - id: psc
