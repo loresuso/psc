@@ -226,6 +226,44 @@ CEL provides string manipulation functions:
 
 - `--tree`, `-t` - Display processes as a tree
 - `--no-color` - Disable colored output
+- `-o`, `--output` - Custom output columns (comma-separated field names)
+
+### Custom Output with `-o`
+
+The `-o` flag lets you specify exactly which fields to display. You can use **presets** for common use cases or specify individual fields.
+
+**Presets:**
+- `sockets` - Process info + full socket details (family, type, state, addresses, ports)
+- `files` - Process info + file descriptor details (fd, type, path)
+- `containers` - Process info + container details (name, image, runtime)
+- `network` - Compact network view (pid, name, type, state, ports)
+
+```bash
+# Use a preset
+psc 'socket.state == listen' -o sockets
+psc 'container.id != ""' -o containers
+
+# Or specify individual fields
+psc -o process.pid,process.name,process.user
+psc 'socket.state == listen' -o process.pid,process.name,socket.srcPort,socket.state
+```
+
+When the output includes file/socket fields and the filter matches multiple files per process, each match gets its own row:
+
+```bash
+$ psc 'socket.state == listen' -o network
+
+PID      NAME      TYPE   STATE    SRCPORT   DSTPORT
+1234     nginx     tcp    LISTEN   80        0
+1234     nginx     tcp    LISTEN   443       0
+5678     sshd      tcp    LISTEN   22        0
+```
+
+Use `psc fields` to list all available fields and presets:
+
+```bash
+psc fields
+```
 
 ## Examples
 
@@ -257,6 +295,18 @@ Find processes with connections to external services:
 
 ```bash
 psc 'socket.state == established && socket.dstPort == uint(443)'
+```
+
+Show network connections with custom columns:
+
+```bash
+psc 'socket.state == established' -o process.pid,process.name,socket.srcPort,socket.dstPort,socket.dstAddr
+```
+
+List containerized processes with their container info:
+
+```bash
+psc 'container.id != ""' -o process.pid,process.name,process.user,container.name,container.image
 ```
 
 ## License

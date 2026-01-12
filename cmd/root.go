@@ -20,6 +20,7 @@ import (
 var (
 	treeFlag    bool
 	noColorFlag bool
+	outputFlag  string
 )
 
 // bootTime is cached at startup for CPU% and start time calculations
@@ -168,6 +169,9 @@ Examples:
 func init() {
 	rootCmd.Flags().BoolVarP(&treeFlag, "tree", "t", false, "Print processes as a tree")
 	rootCmd.Flags().BoolVar(&noColorFlag, "no-color", false, "Disable colored output")
+	rootCmd.Flags().StringVarP(&outputFlag, "output", "o", "", `Output columns. Use preset or comma-separated fields.
+Presets: sockets, files, containers, network
+Example: -o sockets  or  -o process.pid,process.name,socket.srcPort`)
 }
 
 // Execute runs the root command
@@ -241,12 +245,49 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check if custom output is requested
+	columns := table.ParseColumns(outputFlag)
+	if len(columns) > 0 {
+		// Validate columns before filtering
+		if err := table.ValidateColumns(columns); err != nil {
+			return err
+		}
+	}
+
 	// Apply CEL filter if provided
+	var matchResults []filter.MatchResult
 	if celFilter != nil {
-		tasks, err = celFilter.FilterProcesses(tasks)
+		matchResults, err = celFilter.FilterProcessesWithMatch(tasks)
 		if err != nil {
 			return fmt.Errorf("filter evaluation failed: %w", err)
 		}
+	} else {
+		// No filter - all tasks match (process-only)
+		for _, task := range tasks {
+			matchResults = append(matchResults, filter.MatchResult{
+				Task:         task,
+				MatchedFiles: nil,
+			})
+		}
+	}
+
+	// Custom column output
+	if len(columns) > 0 {
+		if treeFlag {
+			return fmt.Errorf("--tree and -o cannot be used together")
+		}
+		columnPrinter, err := table.NewColumnPrinter(os.Stdout, bootTime, columns, !noColorFlag)
+		if err != nil {
+			return err
+		}
+		columnPrinter.Print(matchResults)
+		return nil
+	}
+
+	// Extract tasks for standard output
+	tasks = nil
+	for _, r := range matchResults {
+		tasks = append(tasks, r.Task)
 	}
 
 	// Build process tree (after filtering for tree output)

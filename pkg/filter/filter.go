@@ -18,6 +18,12 @@ type Filter struct {
 	expression string
 }
 
+// MatchResult contains a matched task and information about what caused the match
+type MatchResult struct {
+	Task         *unmarshal.TaskDescriptor   // The matched process
+	MatchedFiles []*unmarshal.FileDescriptor // Files/sockets that caused the match (empty if process-only match)
+}
+
 // Type names for CEL - derived from Go's reflect package
 var (
 	taskType      = reflect.TypeFor[unmarshal.TaskDescriptor]()
@@ -238,9 +244,24 @@ func (f *Filter) MatchProcessWithFile(task *unmarshal.TaskDescriptor, file *unma
 //   - The process-only filter matches, OR
 //   - Any of the process's files match when evaluated with MatchProcessWithFile
 func (f *Filter) FilterProcesses(tasks []*unmarshal.TaskDescriptor) ([]*unmarshal.TaskDescriptor, error) {
-	var result []*unmarshal.TaskDescriptor
+	results, err := f.FilterProcessesWithMatch(tasks)
+	if err != nil {
+		return nil, err
+	}
+	// Extract just the tasks for backwards compatibility
+	var out []*unmarshal.TaskDescriptor
+	for _, r := range results {
+		out = append(out, r.Task)
+	}
+	return out, nil
+}
+
+// FilterProcessesWithMatch filters tasks and returns detailed match information.
+// This includes which files/sockets caused the match for each process.
+func (f *Filter) FilterProcessesWithMatch(tasks []*unmarshal.TaskDescriptor) ([]MatchResult, error) {
+	var results []MatchResult
 	for _, task := range tasks {
-		matched := false
+		var matchedFiles []*unmarshal.FileDescriptor
 
 		// If task has files, try matching with each file
 		if len(task.Files) > 0 {
@@ -251,26 +272,33 @@ func (f *Filter) FilterProcesses(tasks []*unmarshal.TaskDescriptor) ([]*unmarsha
 					break
 				}
 				if match {
-					matched = true
-					break
+					matchedFiles = append(matchedFiles, file)
 				}
 			}
 		}
 
-		// If no file matched (or no files), try process-only match
-		if !matched {
-			match, err := f.MatchProcess(task)
-			if err != nil {
-				return nil, err
-			}
-			matched = match
+		// If files matched, we have a result
+		if len(matchedFiles) > 0 {
+			results = append(results, MatchResult{
+				Task:         task,
+				MatchedFiles: matchedFiles,
+			})
+			continue
 		}
 
-		if matched {
-			result = append(result, task)
+		// Try process-only match
+		match, err := f.MatchProcess(task)
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			results = append(results, MatchResult{
+				Task:         task,
+				MatchedFiles: nil, // Process-only match
+			})
 		}
 	}
-	return result, nil
+	return results, nil
 }
 
 // FilterFiles filters a slice of FileDescriptors, returning only those that match.
