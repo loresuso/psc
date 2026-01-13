@@ -214,7 +214,7 @@ psc 'file.path.startsWith("/etc")'
 - `srcPort` - Source port (uint, use `uint()` for comparisons: `socket.srcPort == uint(80)`)
 - `dstPort` - Destination port (uint, use `uint()` for comparisons: `socket.dstPort == uint(443)`)
 - `type` - Socket type (tcp, udp)
-- `state` - TCP state (listen, established, close_wait, etc.)
+- `state` - Socket state (for filtering, use constants like `listen`, `established`)
 - `family` - Address family (unix, inet, inet6)
 - `unixPath` - Unix socket path (string)
 - `fdType` - FD type (file_type, socket_type)
@@ -226,8 +226,10 @@ Use these without quotes in expressions:
 - **Runtimes**: `docker`, `containerd`, `crio`, `podman`
 - **Socket types**: `tcp`, `udp`
 - **Address families**: `unix`, `inet`, `inet6`
-- **TCP states**: `established`, `listen`, `syn_sent`, `syn_recv`, `fin_wait1`, `fin_wait2`, `time_wait`, `close`, `close_wait`, `last_ack`, `closing`
+- **Socket states** (for filtering): `established`, `listen`, `syn_sent`, `syn_recv`, `fin_wait1`, `fin_wait2`, `time_wait`, `close`, `close_wait`, `last_ack`, `closing`
 - **FD types**: `file_type`, `socket_type`
+
+> **Note**: Output uses `ss`-style state names: `ESTAB`, `LISTEN`, `SYN-SENT`, etc. For UDP sockets, only `UNCONN` (unconnected) or `ESTAB` (connected) are shown since UDP is connectionless.
 
 ### String Functions
 

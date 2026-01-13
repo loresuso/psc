@@ -120,27 +120,39 @@ func (f *FileDescriptor) ProtocolString() string {
 	}
 }
 
-// StateString returns a human-readable TCP state
+// StateString returns a human-readable socket state (ss-style output)
+// For UDP sockets, only UNCONN (unconnected) or ESTAB (connected) are meaningful
 func (f *FileDescriptor) StateString() string {
+	// UDP sockets: only UNCONN or ESTAB are meaningful
+	if f.SockType == SockDgram {
+		switch f.SockState {
+		case TcpEstablished:
+			return "ESTAB"
+		default:
+			return "UNCONN"
+		}
+	}
+
+	// TCP sockets: use ss-style state names
 	switch f.SockState {
 	case TcpEstablished:
-		return "ESTABLISHED"
+		return "ESTAB"
 	case TcpSynSent:
-		return "SYN_SENT"
+		return "SYN-SENT"
 	case TcpSynRecv:
-		return "SYN_RECV"
+		return "SYN-RECV"
 	case TcpFinWait1:
-		return "FIN_WAIT1"
+		return "FIN-WAIT-1"
 	case TcpFinWait2:
-		return "FIN_WAIT2"
+		return "FIN-WAIT-2"
 	case TcpTimeWait:
-		return "TIME_WAIT"
+		return "TIME-WAIT"
 	case TcpClose:
 		return "CLOSE"
 	case TcpCloseWait:
-		return "CLOSE_WAIT"
+		return "CLOSE-WAIT"
 	case TcpLastAck:
-		return "LAST_ACK"
+		return "LAST-ACK"
 	case TcpListen:
 		return "LISTEN"
 	case TcpClosing:
