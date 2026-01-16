@@ -139,6 +139,10 @@ int ps_task(struct bpf_iter__task *ctx)
 }
 
 // Iterate stack traces
+// NOTE: Commented out because BPF_SEQ_PRINTF with %pB format specifier causes
+// the BPF verifier to generate too many instructions (program too large error).
+// This function is not currently used in the codebase.
+/*
 SEC("iter/task")
 int dump_task_stack(struct bpf_iter__task *ctx)
 {
@@ -164,3 +168,4 @@ int dump_task_stack(struct bpf_iter__task *ctx)
 
 	return 0;
 }
+*/
