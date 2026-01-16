@@ -29,7 +29,7 @@ psc 'process.name == "nginx" && process.user == "root"'
 ss -tnp | grep ESTAB | grep :443 | awk '{print $6}' | cut -d'"' -f2
 
 # psc: One clear expression
-psc 'socket.state == established && socket.dstPort == uint(443)'
+psc 'socket.state == established && socket.dstPort == 443'
 ```
 
 psc uses the [Common Expression Language (CEL)](https://github.com/google/cel-go) to filter processes. CEL expressions read almost like natural language, making your scripts self-documenting and maintainable. No more deciphering complex pipelines of `grep | awk | sed | xargs`.
@@ -42,7 +42,7 @@ psc 'socket.state == listen' -o process.name,socket.srcPort
 
 Output presets are also available to quickly print common information:
 ```bash
-psc 'socket.type == tcp && socket.dstPort == uint(443)' -o sockets 
+psc 'socket.type == tcp && socket.dstPort == 443' -o sockets 
 ```
 
 ### Native Container Context
@@ -186,7 +186,7 @@ psc 'socket.type == tcp && socket.state == listen'
 psc 'socket.state == established'
 
 # Find processes connected to a specific port
-psc 'socket.dstPort == uint(443)'
+psc 'socket.dstPort == 443'
 
 # Find processes using Unix sockets
 psc 'socket.family == unix'
@@ -215,12 +215,12 @@ psc 'file.path.startsWith("/etc")'
 - `inheritable` - Inheritable capabilities bitmask (uint)
 
 **Namespace fields** (`process.namespaces.X`):
-- `net` - Network namespace inode (uint)
-- `pid` - PID namespace inode (uint)
-- `mnt` - Mount namespace inode (uint)
-- `uts` - UTS namespace inode (uint)
-- `ipc` - IPC namespace inode (uint)
-- `cgroup` - Cgroup namespace inode (uint)
+- `net` - Network namespace inode (int)
+- `pid` - PID namespace inode (int)
+- `mnt` - Mount namespace inode (int)
+- `uts` - UTS namespace inode (int)
+- `ipc` - IPC namespace inode (int)
+- `cgroup` - Cgroup namespace inode (int)
 
 **Container fields** (`container.X`):
 - `id` - Container ID (string)
@@ -232,8 +232,8 @@ psc 'file.path.startsWith("/etc")'
 **File/Socket fields** (`file.X` or `socket.X`):
 - `path` - File path (string)
 - `fd` - File descriptor number (int)
-- `srcPort` - Source port (uint, use `uint()` for comparisons: `socket.srcPort == uint(80)`)
-- `dstPort` - Destination port (uint, use `uint()` for comparisons: `socket.dstPort == uint(443)`)
+- `srcPort` - Source port (int)
+- `dstPort` - Destination port (int)
 - `type` - Socket type (tcp, udp)
 - `state` - Socket state (for filtering, use constants like `listen`, `established`)
 - `family` - Address family (unix, inet, inet6)
@@ -313,13 +313,13 @@ psc 'process.name == "nginx" || process.name == "apache2" || process.name == "ht
 Find processes listening on privileged ports:
 
 ```bash
-psc 'socket.state == listen && socket.srcPort < uint(1024)'
+psc 'socket.state == listen && socket.srcPort < 1024'
 ```
 
 Find processes in a different network namespace (useful for container/pod inspection):
 
 ```bash
-psc 'process.namespaces.net != uint(4026531840)' -o process.pid,process.name,process.namespaces.net
+psc 'process.namespaces.net != 4026531840' -o process.pid,process.name,process.namespaces.net
 ```
 
 Show capabilities for privileged processes:
@@ -337,7 +337,7 @@ psc 'process.ruid != process.euid'
 Find processes with connections to external services:
 
 ```bash
-psc 'socket.state == established && socket.dstPort == uint(443)'
+psc 'socket.state == established && socket.dstPort == 443'
 ```
 
 Show network connections with custom columns:

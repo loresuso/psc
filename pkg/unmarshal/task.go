@@ -24,12 +24,12 @@ type Capabilities struct {
 
 // Namespaces holds the namespace inode numbers for a process
 type Namespaces struct {
-	Uts    uint64 `cel:"uts"`
-	Ipc    uint64 `cel:"ipc"`
-	Mnt    uint64 `cel:"mnt"`
-	Pid    uint64 `cel:"pid"`
-	Net    uint64 `cel:"net"`
-	Cgroup uint64 `cel:"cgroup"`
+	Uts    int64 `cel:"uts"`
+	Ipc    int64 `cel:"ipc"`
+	Mnt    int64 `cel:"mnt"`
+	Pid    int64 `cel:"pid"`
+	Net    int64 `cel:"net"`
+	Cgroup int64 `cel:"cgroup"`
 }
 
 // ProcessState represents the Linux process state
@@ -272,12 +272,12 @@ func (t *TaskDescriptor) Unmarshal(data []byte) error {
 
 	// Namespaces
 	t.Ns = Namespaces{
-		Uts:    uint64(raw.NsUts),
-		Ipc:    uint64(raw.NsIpc),
-		Mnt:    uint64(raw.NsMnt),
-		Pid:    uint64(raw.NsPid),
-		Net:    uint64(raw.NsNet),
-		Cgroup: uint64(raw.NsCgroup),
+		Uts:    int64(raw.NsUts),
+		Ipc:    int64(raw.NsIpc),
+		Mnt:    int64(raw.NsMnt),
+		Pid:    int64(raw.NsPid),
+		Net:    int64(raw.NsNet),
+		Cgroup: int64(raw.NsCgroup),
 	}
 
 	return nil
