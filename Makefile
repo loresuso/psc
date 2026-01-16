@@ -13,7 +13,7 @@ LDFLAGS := -X github.com/loresuso/psc/cmd.Version=$(VERSION) \
 
 all: build
 
-generate:
+generate: vmlinux
 	go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall -I$(LIBBPF_INCLUDE)" tasks bpf/tasks.c
 	go run github.com/cilium/ebpf/cmd/bpf2go -go-package main -cc clang -no-strip -target bpfel -cflags "-O2 -g -Wall -I$(LIBBPF_INCLUDE)" files bpf/files.c
 
