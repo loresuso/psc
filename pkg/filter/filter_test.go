@@ -38,7 +38,7 @@ func TestNew(t *testing.T) {
 		},
 		{
 			name:       "valid socket expression",
-			expression: `socket.dstPort == uint(443)`,
+			expression: `socket.dstPort == 443`,
 			wantErr:    false,
 		},
 		{
@@ -218,7 +218,7 @@ func TestMatchSocket(t *testing.T) {
 	}{
 		{
 			name:       "match dstPort",
-			expression: `socket.dstPort == uint(443)`,
+			expression: `socket.dstPort == 443`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -229,7 +229,7 @@ func TestMatchSocket(t *testing.T) {
 		},
 		{
 			name:       "match srcPort",
-			expression: `socket.srcPort == uint(80)`,
+			expression: `socket.srcPort == 80`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -291,7 +291,7 @@ func TestMatchSocket(t *testing.T) {
 		},
 		{
 			name:       "match port range",
-			expression: `socket.dstPort >= uint(80) && socket.dstPort <= uint(443)`,
+			expression: `socket.dstPort >= 80 && socket.dstPort <= 443`,
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
 				SockFamily: unmarshal.AfInet,
@@ -333,7 +333,7 @@ func TestMatchProcessWithFile(t *testing.T) {
 	}{
 		{
 			name:       "match process and socket",
-			expression: `process.name == "nginx" && socket.srcPort == uint(80)`,
+			expression: `process.name == "nginx" && socket.srcPort == 80`,
 			task:       &unmarshal.TaskDescriptor{Comm: "nginx"},
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
@@ -344,7 +344,7 @@ func TestMatchProcessWithFile(t *testing.T) {
 		},
 		{
 			name:       "process matches but socket doesn't",
-			expression: `process.name == "nginx" && socket.srcPort == uint(80)`,
+			expression: `process.name == "nginx" && socket.srcPort == 80`,
 			task:       &unmarshal.TaskDescriptor{Comm: "nginx"},
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
@@ -355,7 +355,7 @@ func TestMatchProcessWithFile(t *testing.T) {
 		},
 		{
 			name:       "match process or socket",
-			expression: `process.name == "nginx" || socket.dstPort == uint(443)`,
+			expression: `process.name == "nginx" || socket.dstPort == 443`,
 			task:       &unmarshal.TaskDescriptor{Comm: "apache"},
 			file: &unmarshal.FileDescriptor{
 				FdType:     unmarshal.FdTypeSocket,
@@ -462,7 +462,7 @@ func TestFilterFiles(t *testing.T) {
 		},
 		{
 			name:       "filter by port",
-			expression: `socket.srcPort == uint(80)`,
+			expression: `socket.srcPort == 80`,
 			wantFds:    []int32{3},
 		},
 	}

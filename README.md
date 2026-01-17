@@ -1,56 +1,75 @@
 # psc
 
-**psc** (ps container) is a process scanner that uses eBPF iterators and Google CEL to query system state with precision and full container context.
+**psc** (ps container) is a fast process scanner that uses eBPF iterators and Google CEL to query system state with precision and full container context.
 
-psc requires root privileges to load eBPF programs.
+## Why psc?
 
-## The Problem
+### Fast Kernel-Level Access with eBPF Iterators
 
-Traditional Linux tools like `ps`, `lsof`, and `ss` are powerful but inflexible. They output fixed formats that require extensive piping through `grep`, `awk`, and `sed` to extract useful information:
+psc uses eBPF iterators to read process and file descriptor information directly from kernel data structures. This approach is:
+
+- **Fast**: eBPF iterators are highly efficient compared to the proc filesystem, where traditional tooling spends most of its time executing system calls
+- **Complete**: Access kernel information not traditionally exposed through `/proc`. I plan to add also a way to access certain fields of the `task_struct` on demand for advanced use, but this is just an idea
+- **Tamper-resistant**: Bypasses the `/proc` filesystem entirely, providing visibility that cannot be subverted by userland rootkits or `LD_PRELOAD` tricks
+
+### Readable Queries with CEL
+
+Traditional Linux tools like `ps`, `lsof`, and `ss` are powerful but inflexible. They output fixed formats that require extensive piping through `grep`, `awk`, and `sed`:
 
 ```bash
-# Find all nginx processes owned by root
+# Traditional: Find nginx processes owned by root
 ps aux | grep nginx | grep root | grep -v grep
 
-# With psc:
+# psc: Express exactly what you mean
 psc 'process.name == "nginx" && process.user == "root"'
 ```
 
 ```bash
-# Find processes with established connections on port 443
+# Traditional: Find processes with established connections on port 443
 ss -tnp | grep ESTAB | grep :443 | awk '{print $6}' | cut -d'"' -f2
 
-# With psc:
-psc 'socket.state == established && socket.dstPort == uint(443)'
+# psc: One clear expression
+psc 'socket.state == established && socket.dstPort == 443'
 ```
 
+psc uses the [Common Expression Language (CEL)](https://github.com/google/cel-go) to filter processes. CEL expressions read almost like natural language, making your scripts self-documenting and maintainable. No more deciphering complex pipelines of `grep | awk | sed | xargs`.
+
+The `-o` flag lets you output exactly the fields you need, eliminating post-processing entirely:
+
 ```bash
-# Find containerized processes
+psc 'socket.state == listen' -o process.name,socket.srcPort
+```
+
+Output presets are also available to quickly print common information:
+```bash
+psc 'socket.type == tcp && socket.dstPort == 443' -o sockets 
+```
+
+### Native Container Context
+
+Traditional tools have no concept of containers. Getting container information requires parsing cgroup paths, querying container runtimes, and correlating PIDs manually:
+
+```bash
+# Traditional: Find containerized processes (fragile, incomplete)
 ps aux | xargs -I{} sh -c 'cat /proc/{}/cgroup 2>/dev/null | grep -q docker && echo {}'
 
-# With psc:
+# psc: Native container support
 psc 'container.runtime == docker'
 ```
 
-These tools also read from `/proc`, a virtual filesystem that can be manipulated by userland rootkits. A compromised library loaded via `LD_PRELOAD` can intercept system calls and hide processes, network connections, or files from these traditional utilities.
+psc extracts container context (ID, name, image, runtime, labels) automatically for Docker, containerd, CRI-O, and Podman. Debug any container's processes, files, and network connections directly from the host:
 
-## How psc Works
+```bash
+# Show all processes in a specific container
+psc 'container.name == "my-app"' --tree
 
-### eBPF Iterators for Kernel-Level Visibility
+# Find containers running as root
+psc 'container.runtime == docker && process.user == "root"'
 
-psc uses eBPF iterators to read process and file descriptor information directly from kernel data structures. This bypasses the `/proc` filesystem entirely, providing visibility that cannot be subverted by userland rootkits or `LD_PRELOAD` tricks. When an attacker uses `LD_PRELOAD` to inject a malicious shared library that intercepts calls to `readdir()` or `open()`, traditional tools see only what the rootkit allows. psc reads kernel memory directly via eBPF, seeing the true system state.
+# List containers with their images
+psc 'container.id != ""' -o process.pid,process.name,container.name,container.image
+```
 
-### Google CEL for Flexible Queries
-
-Instead of chaining `grep` commands, psc uses the [Common Expression Language (CEL)](https://github.com/google/cel-go) to filter processes. CEL is a simple, safe expression language designed for evaluating boolean conditions. It allows you to answer:
-
-- **What** is running: Filter by process name, command line, user, or PID
-- **Where** it is running: Filter by container runtime, container name, image, or labels
-- **Why** it is running: Inspect open file descriptors, network connections (ports, states, protocols), and socket types to understand what a process is doing and why it exists
-
-### Debug Containers from the Host
-
-With psc, you can inspect any container's processes, open files, and network connections directly from the host. 
 
 ## Building
 
@@ -103,14 +122,16 @@ sudo make install
 
 ## Usage
 
+psc requires **root privileges** to load eBPF programs.
+
 ### Basic Usage
 
 ```bash
 # List all processes
-psc
+sudo psc
 
 # List all processes as a tree
-psc --tree
+sudo psc --tree
 ```
 
 ### Filtering with CEL Expressions
@@ -165,7 +186,7 @@ psc 'socket.type == tcp && socket.state == listen'
 psc 'socket.state == established'
 
 # Find processes connected to a specific port
-psc 'socket.dstPort == uint(443)'
+psc 'socket.dstPort == 443'
 
 # Find processes using Unix sockets
 psc 'socket.family == unix'
@@ -194,12 +215,12 @@ psc 'file.path.startsWith("/etc")'
 - `inheritable` - Inheritable capabilities bitmask (uint)
 
 **Namespace fields** (`process.namespaces.X`):
-- `net` - Network namespace inode (uint)
-- `pid` - PID namespace inode (uint)
-- `mnt` - Mount namespace inode (uint)
-- `uts` - UTS namespace inode (uint)
-- `ipc` - IPC namespace inode (uint)
-- `cgroup` - Cgroup namespace inode (uint)
+- `net` - Network namespace inode (int)
+- `pid` - PID namespace inode (int)
+- `mnt` - Mount namespace inode (int)
+- `uts` - UTS namespace inode (int)
+- `ipc` - IPC namespace inode (int)
+- `cgroup` - Cgroup namespace inode (int)
 
 **Container fields** (`container.X`):
 - `id` - Container ID (string)
@@ -211,8 +232,8 @@ psc 'file.path.startsWith("/etc")'
 **File/Socket fields** (`file.X` or `socket.X`):
 - `path` - File path (string)
 - `fd` - File descriptor number (int)
-- `srcPort` - Source port (uint, use `uint()` for comparisons: `socket.srcPort == uint(80)`)
-- `dstPort` - Destination port (uint, use `uint()` for comparisons: `socket.dstPort == uint(443)`)
+- `srcPort` - Source port (int)
+- `dstPort` - Destination port (int)
 - `type` - Socket type (tcp, udp)
 - `state` - Socket state (for filtering, use constants like `listen`, `established`)
 - `family` - Address family (unix, inet, inet6)
@@ -243,7 +264,12 @@ CEL provides string manipulation functions:
 
 - `--tree`, `-t` - Display processes as a tree
 - `--no-color` - Disable colored output
-- `-o`, `--output` - Custom output columns (comma-separated field names)
+- `-o`, `--output` - Custom output columns (comma-separated field names or preset)
+
+### Subcommands
+
+- `psc fields` - List all available CEL fields, constants, and output presets
+- `psc version` - Show version information
 
 ### Custom Output with `-o`
 
@@ -276,12 +302,6 @@ PID      NAME      TYPE   STATE    SRCPORT   DSTPORT
 5678     sshd      tcp    LISTEN   22        0
 ```
 
-Use `psc fields` to list all available fields and presets:
-
-```bash
-psc fields
-```
-
 ## Examples
 
 Find all web servers:
@@ -293,13 +313,13 @@ psc 'process.name == "nginx" || process.name == "apache2" || process.name == "ht
 Find processes listening on privileged ports:
 
 ```bash
-psc 'socket.state == listen && socket.srcPort < uint(1024)'
+psc 'socket.state == listen && socket.srcPort < 1024'
 ```
 
 Find processes in a different network namespace (useful for container/pod inspection):
 
 ```bash
-psc 'process.namespaces.net != uint(4026531840)' -o process.pid,process.name,process.namespaces.net
+psc 'process.namespaces.net != 4026531840' -o process.pid,process.name,process.namespaces.net
 ```
 
 Show capabilities for privileged processes:
@@ -314,34 +334,16 @@ Find processes that elevated privileges via SUID binaries (real UID differs from
 psc 'process.ruid != process.euid'
 ```
 
-Find Docker containers running as root:
-
-```bash
-psc 'container.runtime == docker && process.user == "root"'
-```
-
-Debug a specific container:
-
-```bash
-psc 'container.name == "my-app"' --tree
-```
-
 Find processes with connections to external services:
 
 ```bash
-psc 'socket.state == established && socket.dstPort == uint(443)'
+psc 'socket.state == established && socket.dstPort == 443'
 ```
 
 Show network connections with custom columns:
 
 ```bash
 psc 'socket.state == established' -o process.pid,process.name,socket.srcPort,socket.dstPort,socket.dstAddr
-```
-
-List containerized processes with their container info:
-
-```bash
-psc 'container.id != ""' -o process.pid,process.name,process.user,container.name,container.image
 ```
 
 ## License

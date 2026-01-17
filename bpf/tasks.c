@@ -7,7 +7,33 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-static unsigned long entries[MAX_STACK_TRACE_DEPTH];
+// CO-RE type flavor for before6.3 kernels
+struct kernel_cap_struct___old {
+	__u32 cap[2];
+} __attribute__((preserve_access_index));
+
+enum cap_type { 
+	CAP_EFFECTIVE,
+	CAP_PERMITTED,
+	CAP_INHERITABLE 
+};
+
+static __always_inline __u64 read_capability(const struct cred *cred, enum cap_type type)
+{
+	const void *cap_ptr = (type == CAP_EFFECTIVE)   ? &cred->cap_effective :
+	                      (type == CAP_PERMITTED)   ? &cred->cap_permitted :
+	                                                  &cred->cap_inheritable;
+
+	if (bpf_core_field_exists(cred->cap_effective.val)) {
+		__u64 val;
+		bpf_probe_read_kernel(&val, sizeof(val), cap_ptr);
+		return val;
+	}
+
+	struct kernel_cap_struct___old old;
+	bpf_probe_read_kernel(&old, sizeof(old), cap_ptr);
+	return ((__u64)old.cap[1] << 32) | old.cap[0];
+}
 
 struct task_descriptor {
 	int euid;
@@ -71,6 +97,10 @@ static __always_inline void fill_task_descriptor(struct task_descriptor *td, str
 	td->cap_effective = ((__u64)cap_eff.cap[1] << 32) | cap_eff.cap[0];
 	td->cap_permitted = ((__u64)cap_perm.cap[1] << 32) | cap_perm.cap[0];
 	td->cap_inheritable = ((__u64)cap_inh.cap[1] << 32) | cap_inh.cap[0];
+	
+	td->cap_effective = read_capability(task->cred, CAP_EFFECTIVE);
+	td->cap_permitted = read_capability(task->cred, CAP_PERMITTED);
+	td->cap_inheritable = read_capability(task->cred, CAP_INHERITABLE);
 
 	// Get memory info from mm_struct
 	mm = task->mm;
@@ -138,34 +168,3 @@ int ps_task(struct bpf_iter__task *ctx)
 	return 0;
 }
 
-// Iterate stack traces
-// NOTE: Commented out because BPF_SEQ_PRINTF with %pB format specifier causes
-// the BPF verifier to generate too many instructions (program too large error).
-// This function is not currently used in the codebase.
-/*
-SEC("iter/task")
-int dump_task_stack(struct bpf_iter__task *ctx)
-{
-	struct seq_file *seq = ctx->meta->seq;
-	struct task_struct *task = ctx->task;
-	long i, retlen;
-
-	if (task == (void *)0)
-		return 0;
-
-	retlen = bpf_get_task_stack(task, entries,
-				    MAX_STACK_TRACE_DEPTH * SIZE_OF_ULONG, 0);
-	if (retlen < 0)
-		return 0;
-
-	BPF_SEQ_PRINTF(seq, "pid: %8u num_entries: %8u\n", task->pid,
-		       retlen / SIZE_OF_ULONG);
-	for (i = 0; i < MAX_STACK_TRACE_DEPTH; i++) {
-		if (retlen > i * SIZE_OF_ULONG)
-			BPF_SEQ_PRINTF(seq, "[<0>] %pB\n", (void *)entries[i]);
-	}
-	BPF_SEQ_PRINTF(seq, "\n");
-
-	return 0;
-}
-*/

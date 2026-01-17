@@ -64,8 +64,8 @@ type FileDescriptor struct {
 	// For inet sockets
 	SrcAddr net.IP `cel:"srcAddr"`
 	DstAddr net.IP `cel:"dstAddr"`
-	SrcPort uint16 `cel:"srcPort"`
-	DstPort uint16 `cel:"dstPort"`
+	SrcPort int32  `cel:"srcPort"`
+	DstPort int32  `cel:"dstPort"`
 
 	// For unix sockets
 	UnixPath string `cel:"unixPath"`
@@ -240,7 +240,7 @@ func (f *FileDescriptor) IsEstablished() bool {
 }
 
 // Port returns the local port (srcPort) for convenience
-func (f *FileDescriptor) Port() uint16 {
+func (f *FileDescriptor) Port() int32 {
 	return f.SrcPort
 }
 
@@ -313,8 +313,8 @@ func (f *FileDescriptor) Unmarshal(data []byte) error {
 		var inet rawInetSockInfo
 		inetReader := bytes.NewReader(raw.Data[:])
 		if err := binary.Read(inetReader, binary.LittleEndian, &inet); err == nil {
-			f.SrcPort = inet.SrcPort
-			f.DstPort = inet.DstPort
+			f.SrcPort = int32(inet.SrcPort)
+			f.DstPort = int32(inet.DstPort)
 
 			if raw.SockFamily == AfInet {
 				f.SrcAddr = net.IP(inet.SrcAddr[:4])
