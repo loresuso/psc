@@ -84,6 +84,20 @@ static __always_inline void fill_task_descriptor(struct task_descriptor *td, str
 	td->utime = task->utime;
 	td->stime = task->stime;
 
+	// Capabilities from credentials
+	// kernel_cap_struct has cap[2] (two __u32 values), combine into __u64
+	struct kernel_cap_struct cap_eff = {};
+	struct kernel_cap_struct cap_perm = {};
+	struct kernel_cap_struct cap_inh = {};
+	
+	bpf_probe_read_kernel(&cap_eff, sizeof(cap_eff), &task->cred->cap_effective);
+	bpf_probe_read_kernel(&cap_perm, sizeof(cap_perm), &task->cred->cap_permitted);
+	bpf_probe_read_kernel(&cap_inh, sizeof(cap_inh), &task->cred->cap_inheritable);
+	
+	td->cap_effective = ((__u64)cap_eff.cap[1] << 32) | cap_eff.cap[0];
+	td->cap_permitted = ((__u64)cap_perm.cap[1] << 32) | cap_perm.cap[0];
+	td->cap_inheritable = ((__u64)cap_inh.cap[1] << 32) | cap_inh.cap[0];
+	
 	td->cap_effective = read_capability(task->cred, CAP_EFFECTIVE);
 	td->cap_permitted = read_capability(task->cred, CAP_PERMITTED);
 	td->cap_inheritable = read_capability(task->cred, CAP_INHERITABLE);
@@ -97,9 +111,15 @@ static __always_inline void fill_task_descriptor(struct task_descriptor *td, str
 		// RSS: sum of file, anon, and shmem pages (approximation using base count)
 		// Note: This is the base count only, actual RSS may be slightly different
 		// due to per-CPU deltas in percpu_counter
-		rss_file = mm->rss_stat[MM_FILEPAGES].count;
-		rss_anon = mm->rss_stat[MM_ANONPAGES].count;
-		rss_shmem = mm->rss_stat[MM_SHMEMPAGES].count;
+		// rss_stat is a struct with count[4] array (atomic_long_t = atomic64_t)
+		// atomic64_t has a .counter field containing the actual value
+		atomic64_t count_file, count_anon, count_shmem;
+		bpf_probe_read_kernel(&count_file, sizeof(count_file), &mm->rss_stat.count[MM_FILEPAGES]);
+		rss_file = BPF_CORE_READ(&count_file, counter);
+		bpf_probe_read_kernel(&count_anon, sizeof(count_anon), &mm->rss_stat.count[MM_ANONPAGES]);
+		rss_anon = BPF_CORE_READ(&count_anon, counter);
+		bpf_probe_read_kernel(&count_shmem, sizeof(count_shmem), &mm->rss_stat.count[MM_SHMEMPAGES]);
+		rss_shmem = BPF_CORE_READ(&count_shmem, counter);
 		
 		// Ensure non-negative (percpu counters can temporarily go negative)
 		if (rss_file < 0) rss_file = 0;
